@@ -1,0 +1,4 @@
+(def troll 
+  (fn ()
+    (while #true (js.alert "CLOJURESCRIPT SUXORS -- JSIPHONEBOIFOREVAZ"))))
+(troll)
