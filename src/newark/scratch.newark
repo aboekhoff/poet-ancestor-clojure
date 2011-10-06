@@ -1,4 +1,40 @@
-(def troll 
-  (fn ()
-    (while #true (js.alert "CLOJURESCRIPT SUXORS -- JSIPHONEBOIFOREVAZ"))))
-(troll)
+(define-syntax let*
+  [(let* [] body ...) 
+   (let [] body ...)]
+
+  [(let* [(name value) more ...] body ...)
+   (let [(name value)] (let* [more ...] body ...))])
+
+(define-syntax or
+  [(or) #false]
+  [(or x) x]
+  [(or x xs ...) (let [(x* x)] (if x* x* (or xs ...)))])
+
+;(define-syntax and
+;  [(and) #true]
+;  [(and x) x]
+;  [(and x xs ...) (let [(x* x)] (if x* (and xs ...) x*))])
+
+;(define-syntax when 
+;  [(when test body ...) (if test (begin body ...))])
+
+;(when (or #f #nil js.NaN 42)
+;      (and #t 42))
+
+(define-symbol-syntax troll
+  (begin
+    (js.alert "FUCK")
+    (js.alert "FUCK FUCK")
+    (js.alert "FUCK FUCK THE POWERRR")))
+
+(begin
+  troll
+  troll
+  troll)
+
+(define x1 (or))
+(define x2 (or 1))
+(define x3 (or 1 2 3))
+
+(let [(x 1) (y 2) (z 3)] (+ x y z))
+(let* [(x 1) (y x) (z y)] (+ x y z))

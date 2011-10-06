@@ -5,4 +5,4 @@
 (def USER (str GLOBAL "." USER*))
 (def PRELUDE (str "if (typeof "
                   USER " == 'undefined') { "
-                  USER " = {}; };\n"))
+                  USER " = {} } \n\n"))

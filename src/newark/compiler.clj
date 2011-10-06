@@ -15,8 +15,9 @@
   {:locals (atom #{})
    :block  (atom [])})
 
-(defn push-local [local scope]
-  (swap! (:locals scope) conj local))
+(defn push-local [[_ type :as local] scope]
+  (when (not= type :GLOBAL)
+    (swap! (:locals scope) conj local)))
 
 (defn gen-local [scope & [name]]
   (let [local [:VAR :AUTO (next-id)]]
@@ -98,7 +99,13 @@
           testbody (-> e* :block deref)         
           loopbody (compile-block b nil e*)
           body     (conj testbody [:IF testexpr loopbody [[:BREAK]]])]
-      (statement `(:WHILE [:CONSTANT true] ~body) e)
+      (statement [:WHILE [:CONSTANT true] body] e)
+      [:CONSTANT nil])
+
+    :FOR_EACH_PROPERTY
+    (let [b (simplify b e)
+          c (compile-block c nil e)]
+      (statement [:FOR_EACH_PROPERTY a b c])
       [:CONSTANT nil])
     
     ;; default
@@ -113,7 +120,7 @@
       (recur xs (conj acc (simplify x e)))
       acc)))
 
-(defn compile [[tag a b c d :as x] t e]
+(defn compile [[tag a b c d :as x] t e]  
   (case tag        
     :CONSTANT
     (pure x t e)
@@ -129,7 +136,7 @@
     (let [xs (rest x)]
       (cond
        (empty? xs)
-       nil
+       (pure [:CONSTANT nil] t e)
        
        (empty? (rest xs))
        (compile (first xs) t e)
@@ -147,8 +154,10 @@
       (expression [:PROJECT a* b*] t e))
 
     :WHILE
-    (do (simplify x e)
-        (pure [:CONSTANT nil] t e))
+    (pure (simplify x e) t e)
+
+    :FOR_EACH_PROPERTY
+    (pure (simplify x e) t e)    
     
     :DEF
     (do (push-local a e)
@@ -163,7 +172,7 @@
     (let [a* (simplify a e)
           b* (compile-block b t e)
           c* (compile-block c t e)]
-      (statement [:IF a* b* c*]))
+      (statement [:IF a* b* c*] e))
     
     :OPCALL
     (let [b* (simplify* b e)]
@@ -191,8 +200,7 @@
     (deref (get scope :block))))
 
 (defn compile-fn [params body]
-  (let [scope  (make-scope)
-        ret    (gen-local scope)
+  (let [scope  (make-scope)     
         tracer return-tracer
         _      (compile body tracer scope)
         body   (finalize-scope scope)]

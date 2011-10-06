@@ -2,7 +2,11 @@
   (:refer-clojure :exclude [read-string])
   (:require [clojure.java.io :as io]))
 
-(declare read-form read-whitespace set-reader-macro)
+(declare read-form
+         read-whitespace
+         set-reader-macro)
+
+(def macros (atom {}))
 
 (defn string->input-port [s & [origin]]
   (atom {:origin origin
@@ -31,8 +35,37 @@
       (swap! port update-in [:column] inc))
     c))
 
+(defn read-until [predicate port]
+  (loop [chars []]
+    (let [c (peek-char port)]
+      (if (predicate c)
+        (apply str chars)
+        (recur (conj chars (read-char port)))))))
+
+(defn terminal? [x]
+  (or (nil? x) (@macros x)))
+
 (defn get-position [port]
   (select-keys @port [:origin :offset :line :column]))
+
+;; for now we dont really dispatch, just return constants
+;; may extend for heredocs but probably after bootstrap
+
+(def dispatch-macros
+  {"t"     true
+   "f"     false
+   "true"  true   
+   "false" false
+   "nil"   nil})
+
+(defn read-dispatch-macro [port]
+  (let [position (get-position port)
+        _        (read-char port)
+        string   (read-until terminal? port)]    
+    (if (contains? dispatch-macros string)
+      (get dispatch-macros string)
+      (throw (RuntimeException.
+              (str "invalid dispatch macro: #" string " at " position))))))
 
 (defn eof! [port]
   (throw (RuntimeException.
@@ -49,18 +82,7 @@
     (throw (RuntimeException.
             (str "unclosed " descriptor " at " position)))))
 
-(def macros (atom {}))
 
-(defmulti set-reader-macro (fn [x f] (type x)))
-
-(defmethod set-reader-macro Character [x f]
-  (swap! macros assoc x f))
-
-(defmethod set-reader-macro String [x f]  
-  (doseq [c x] (set-reader-macro c f)))
-
-(defmethod set-reader-macro clojure.lang.PersistentHashSet [x f]
-  (doseq [c x] (set-reader-macro c f)))
 
 (defn read-delimited-list [port end? process descriptor]
   (let [position (get-position port)]
@@ -84,9 +106,6 @@
    (fn [x] (apply list x))
    "list"))
 
-(set-reader-macro \( read-list)
-(set-reader-macro \) (mismatched-delimiter \]))
-
 (defn read-vector [port]
   (read-delimited-list
    port
@@ -97,9 +116,6 @@
        false))
    vec
    "array"))
-
-(set-reader-macro \[ read-vector)
-(set-reader-macro \] (mismatched-delimiter \]))
 
 (defn read-whitespace [port]
   (loop [in-comment? false]
@@ -113,9 +129,8 @@
         \;        (recur true)
                   (if in-comment?
                     (recur true)
-                    (when c (unread-char port)))))))
-
-(set-reader-macro " \n\r\f\t\b;" read-whitespace)
+                    (do (when c (unread-char port))
+                        ::CONTINUE))))))
 
 (def escape-map
   {\n \newline
@@ -137,8 +152,6 @@
               \\  (recur (conj chars (escape-map (read-char port))))
                   (recur (conj chars c)))))))
 
-(set-reader-macro \" read-string-literal)
-
 (defn parse-atom [s p]
   (cond
    (re-matches #"^(\+|-)?(0|([1-9][0-9]*))$" s)
@@ -154,21 +167,23 @@
    (Double/parseDouble s)
    
    :else
-   (with-meta (symbol nil s) {:source-position p})))
+   (if (= \: (first s))
+     (keyword nil (apply str (rest s)))     
+     (with-meta (symbol nil s) {:source-position p}))))
 
 (defn read-atom [port]
-  (let [position (get-position port)]
-    (loop [chars []]
-      (let [c (peek-char port)]        
-        (if (or (@macros c) (nil? c))         
-          (parse-atom (apply str chars) position)
-          (recur (conj chars (read-char port))))))))
+  (let [position (get-position port)
+        string   (read-until terminal? port)]
+    (parse-atom string position)))
 
 (defn read-form [port]
   (let [c (peek-char port)]
     (cond
      (nil? c)    ::EOF
-     (@macros c) (or ((@macros c) port) (recur port))
+     (@macros c) (let [v ((@macros c) port)]
+                   (if (= v ::CONTINUE)
+                     (recur port)
+                     v))
      :else       (read-atom port))))
 
 (defn read-all-forms [port] 
@@ -188,7 +203,23 @@
 
 (defmethod read-file java.io.File [x]
   (when (.exists x)
-    (read-all-forms (string->input-port (slurp x)))))
+    (read-all-forms (string->input-port (slurp x) (.getName x)))))
 
+(defmulti set-reader-macro (fn [x f] (type x)))
 
+(defmethod set-reader-macro Character [x f]
+  (swap! macros assoc x f))
 
+(defmethod set-reader-macro String [x f]  
+  (doseq [c x] (set-reader-macro c f)))
+
+(defmethod set-reader-macro clojure.lang.PersistentHashSet [x f]
+  (doseq [c x] (set-reader-macro c f)))
+
+(set-reader-macro \# read-dispatch-macro)
+(set-reader-macro \( read-list)
+(set-reader-macro \) (mismatched-delimiter \]))
+(set-reader-macro \[ read-vector)
+(set-reader-macro \] (mismatched-delimiter \]))
+(set-reader-macro \" read-string-literal)
+(set-reader-macro " \n\r\f\t\b;" read-whitespace)

@@ -1,19 +1,26 @@
-(ns newark.syntax)
-
-;; NOTE: this was copy pasted from an earlier similar project
-;; still needs adaptation
-;; since this implementation is intended only to bootstrap
-;; the javascript hosted implementation
-;; macros are nice, but not needed, since we can't just
-;; extend this bootstrap compiler as we please
-;; and add them in properly to the javascript hosted implementation
-
-;; just syntax-rules
-;; well, syntax rules without the 'keywords'
-;; we prefer the use of actual keywords for 'scheme keywords'
+(ns newark.syntax
+  (:use [newark.env :only [sanitize make-tag make-environment]]))
 
 (def dots (symbol "..."))
 (defn dots? [x] (= x dots))
+
+(defn shortest-branch [m]
+  (if-let [ns (seq (map (comp count val) m))]
+    (apply min ns)
+    0))
+
+(defn map-vals [f m] (into {} (for [[k v] m] [k (f v)])))
+
+(defn reducer
+  ([f xs] (if (empty? xs)
+            (f)
+            (reducer f (last xs) (butlast xs))))
+  ([f x xs] (reduce (fn ([x y] (f y x))) x (reverse xs))))
+
+(defn with-meta* [obj metadata]
+  (if (instance? clojure.lang.IMeta obj)
+    (with-meta obj metadata)
+    obj))
 
 ;; let's assume all patterns all well formed
 ;; it will be easier to validate a pattern separately
@@ -22,12 +29,11 @@
   ([p] (extract-symbols p '()))
   ([p acc]
      (cond
-      (dots? p)       acc
-      (literal? p)    acc
-      (symbol? p) (cons p acc)
-      (seq? p)        (concat acc (mapcat extract-symbols p))
-      (vector? p)     (concat acc (mapcat extract-symbols p))
-      :else           acc)))
+      (dots? p)    acc
+      (symbol? p)  (cons p acc)
+      (seq? p)     (concat acc (mapcat extract-symbols p))
+      (vector? p)  (concat acc (mapcat extract-symbols p))
+      :else        acc)))
 
 (defn combine-k-v [m [k v]]
   (let [coll (or (get m k) [])]
@@ -45,18 +51,17 @@
 
 (defn match-sexp [p t]
   (cond
-   (symbol? p) {p t}
-   (literal? p)    (when (matches-literal? p t) {})
-   (vector? p)     (when (vector? t)
-                     (if (and (empty? p) (empty? t))
-                       {}
-                       (match-seq p t)))
-   (seq? p)        (when (seq? t)
-                     (if (and (empty? p) (empty? t))
-                       {}
-                       (match-seq p t))
-                     (match-seq p t))
-   :else           (when (= p t) {})))
+   (symbol? p)  {p t}
+   (vector? p)  (when (vector? t)
+                  (if (and (empty? p) (empty? t))
+                    {}
+                    (match-seq p t)))
+   (seq? p)     (when (seq? t)
+                  (if (and (empty? p) (empty? t))
+                    {}
+                    (match-seq p t))
+                  (match-seq p t))
+   :else        (when (= p t) {})))
 
 (defn match-seq [[a b & more :as p] [x & xs :as t]]
   (cond
@@ -85,13 +90,13 @@
 (defn compile-template [x ids]
   (cond
    (symbol? x) (if (get ids x) [:GET x] [:PUT x])
-   (seq? x)        (if (empty? x)
-                     [:PUT x]
-                     [:SEQ (compile-template* x ids)])
-   (vector? x)     (if (empty? x)
-                     [:PUT x]
-                     [:VEC (compile-template* x ids)])
-   :else           [:PUT x]))
+   (seq? x)    (if (empty? x)
+                 [:PUT x]
+                 [:SEQ (compile-template* x ids)])
+   (vector? x) (if (empty? x)
+                 [:PUT x]
+                 [:VEC (compile-template* x ids)])
+   :else       [:PUT x]))
 
 (defn compile-template* [xs ids]
   (loop [xs xs acc []]
@@ -134,7 +139,7 @@
                  (apply conj acc (expand-template* template data*))))
         (seq acc)))))
 
-(defn create-matcher-1 [pattern template]
+(defn make-matcher-1 [pattern template]
   (let [idents   (extract-symbols pattern)
         template (compile-template template (set idents))]
     (fn [fail]
@@ -145,30 +150,37 @@
 
 (defn gen-err [pats]
   (fn [input]
-    (apply raise!
-      "syntax error on input:" (apply str input) "\n"
-      "no match found among patterns:\n"
-      (interpose "\n" pats))))
+    (let [position (-> input meta :position)]
+      (throw (RuntimeException.
+              (apply str
+                     "syntax error on input: " (str input) "\n"
+                     (when position (str position "\n"))
+                     "no match found among patterns:\n"
+                     (interpose "\n" pats)))))))
 
-(defn create-matcher* [pts]
-  (let [pts      (partition 2 pts)
-        pats     (map first pts)
+(defn make-matcher* [pts]
+  (let [pats     (map first pts)
         pats*    (map rest pats)
         tmps     (map second pts)
-        matchers (map create-matcher-1 pats* tmps)
+        matchers (map make-matcher-1 pats* tmps)
         err      (gen-err pats)]
     (reducer (fn [f g] (f g)) err matchers)))
 
-(defn create-syntax [env pts]
-  (let [matcher (create-matcher* pts)]
+(defn make-syntax [env pts]
+  (let [matcher (make-matcher* pts)]
     (fn [input]
-      (let [color (env->color env)]
+      (let [tag (make-tag env)]
         (-> input
-            (sanitize color)
-            matcher
-            (sanitize color))))))
+            (sanitize tag)
+            (matcher)
+            (sanitize tag)            
+            (with-meta* {:position (-> input meta :position)}))))))
 
-;; TODO
-
-(defn create-symbol-syntax [env template])
+(defn make-symbol-syntax [env template]
+  (let [template* (compile-template template #{})]
+    (fn [input]
+      (let [tag     (make-tag env)
+            output  (expand-template template* {})
+            output* (sanitize output tag)]
+        output*))))
 

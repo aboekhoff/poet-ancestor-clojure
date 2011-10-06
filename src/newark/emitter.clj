@@ -4,7 +4,7 @@
 
 (defn wrap [params args code]
   (str "(function(" (str/join "," params)
-       ") {\n\n" code "\n\n})("
+       ") {\n\n" code "\n})("
        (str/join "," args) ");"))
 
 (defn wrap-toplevel [code]
@@ -119,7 +119,7 @@
                (write! "function ")
                (comma-list a)
                (SP)
-               (emit-body (second b)))
+               (emit-body b))
     :WHILE    (do (write! "while ")
                   (in-parens (emit a))
                   (SP)
@@ -149,7 +149,6 @@
       :AUTO   (write! (str "_" b)))))
 
 (defn emit-tokens [tokens]
-  (prn tokens)
   (clear!)
   (reset-depth!)
   (doseq [t tokens] (emit t))

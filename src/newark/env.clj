@@ -5,9 +5,12 @@
 
 (def env-db (atom []))
 
+(defn tag->env [tag]
+  (get @env-db tag))
+
 (defn make-tag [env]
   (let [tag (count @env-db)]
-    (swap! env-db (conj env))
+    (swap! env-db conj env)
     tag))
 
 (defn apply-tag [sym tag]
@@ -22,7 +25,7 @@
 (defn untag [sym]
   (when (tagged? sym)
     (let [tags (seq (-> sym meta ::tags))]    
-      [(get @env-db (first tags))
+      [(tag->env (first tags))
        (with-meta sym {::tags (rest tags)})])))
 
 (defn symbol->key [sym]
@@ -83,16 +86,19 @@
     loc))
 
 (def standard-env*
-  {"#def"    :DEFINE
-   "#if"     :IF
-   "#set!"   :SET!
-   "#let"    :LET
-   "#."      :PROJECT
-   "#fn"     :FN
-   "#while"  :WHILE
-   "#begin"  :BEGIN
-   "#new"    :NEW
-   "#js"     [:RAW constants/GLOBAL]})
+  {"#define"               :DEFINE
+   "#define-syntax"        :DEFINE_SYNTAX
+   "#define-symbol-syntax" :DEFINE_SYMBOL_SYNTAX
+   "#if"    :IF
+   "#set!"  :SET!
+   "#let"   :LET
+   "#."     :PROJECT
+   "#fn"    :FN
+   "#while" :WHILE
+   "#begin" :BEGIN
+   "#new"   :NEW
+   "#js"    [:RAW constants/GLOBAL]
+   "#for-each-property" :FOR_EACH_PROPERTY})
 
 (defn make-standard-environment [& [namespace]]
   (let [env (make-environment namespace)]
