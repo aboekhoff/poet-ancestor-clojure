@@ -150,8 +150,8 @@
                  (recur ys)))))))   
    
     :PROJECT
-    (let [[a* b*] (simplify* (rest x))]
-      (expression [:PROJECT a* b*] t e))
+    (let [[a* b*] (simplify* (rest x) e)]
+      (pure [:PROJECT a* b*] t e))
 
     :WHILE
     (pure (simplify x e) t e)
