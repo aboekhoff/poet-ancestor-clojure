@@ -80,13 +80,13 @@
                  body          (rest tail)]
              (recur env
                     forms
-                    [::FUNCTION_DEFINITION loc params body]))
+                    (conj expanded [::FUNCTION_DEFINITION loc params body])))
            (let [name (first tail)
                  loc  (env/defvar env name)
                  expr (second tail)]
              (recur env
                     forms
-                    [::DEFINITION loc expr]))))
+                    (conj expanded [::DEFINITION loc expr])))))
 
        (macro-definition? env form)
        (let [macro (syntax/make-syntax env (drop 2 form))]
