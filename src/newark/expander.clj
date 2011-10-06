@@ -161,9 +161,9 @@
         b       (when b (env/defvar env* b))
         c       (when c (env/defvar env* c))
         body*   (expand-body env* body)
-        body*   (if b `(:BEGIN (:DEF ~b (:RAW "this")) ~body*) body*)
-        body*   (if c `(:BEGIN (:DEF ~c (:RAW "arguments") ~body*)) body*)]
-    `(:FN ~params* ~body*)))
+        body*   (if b [:BEGIN [:DEF b [:RAW "this"]] body*] body*)
+        body*   (if c [:BEGIN [:DEF c [:RAW "arguments"]] body*] body*)]
+    [:FN params* body*]))
 
 (defn expand-let [env bindings body]
   (let [exprs (doall (for [[_ expr] bindings] (expand-form env expr)))
