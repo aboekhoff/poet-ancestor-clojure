@@ -78,11 +78,15 @@
            (let [[name & params] (first tail)
                  loc           (env/defvar env name)
                  body          (rest tail)]
-             [::FUNCTION_DEFINITION loc params body])
+             (recur env
+                    forms
+                    [::FUNCTION_DEFINITION loc params body]))
            (let [name (first tail)
                  loc  (env/defvar env name)
                  expr (second tail)]
-             [::DEFINITION loc expr])))
+             (recur env
+                    forms
+                    [::DEFINITION loc expr]))))
 
        (macro-definition? env form)
        (let [macro (syntax/make-syntax env (drop 2 form))]
