@@ -4,6 +4,8 @@
             [newark.syntax :as syntax]
             [clojure.string :as str]))
 
+(declare expand-symbol expand-list expand-array expand-function)
+
 (defn syntax-error [msg form]
   (throw (RuntimeException.
           (str msg
@@ -34,8 +36,6 @@
     (if (= x x*)
       x*
       (recur e x*))))
-
-(declare expand-symbol expand-list expand-array)
 
 (defn expand-form [env form]
   (let [x (macroexpand env form)]
@@ -73,9 +73,16 @@
        (recur env (concat (rest form) forms) expanded)
        
        (definition? env form)
-       (let [[_ name expr] form
-             loc (env/defvar env name)]
-         (recur env forms (conj expanded [::DEFINITION loc expr])))
+       (let [tail (rest form)]
+         (if (seq? (first tail))
+           (let [[name & params] (first tail)
+                 loc           (env/defvar env name)
+                 body          (rest tail)]
+             [::FUNCTION_DEFINITION loc params body])
+           (let [name (first tail)
+                 loc  (env/defvar env name)
+                 expr (second tail)]
+             [::DEFINITION loc expr])))
 
        (macro-definition? env form)
        (let [macro (syntax/make-syntax env (drop 2 form))]
@@ -95,12 +102,19 @@
     (cons :BEGIN reexpanded)
     (let [[form & expanded] expanded]
       (case (first form)
+        ::FUNCTION_DEFINITION
+        (let [[_ loc params body] form
+              func (expand-function env params body)]
+          (recur env
+                 expanded
+                 (conj reexpanded [:DEF loc func])))
+            
         ::DEFINITION
         (let [[_ loc expr] form
               expr* (expand-form env expr)]
           (recur env
                  expanded
-                 (conj reexpanded `(:DEF ~loc ~expr*))))
+                 (conj reexpanded [:DEF loc expr*])))
         
         ::EXPRESSION
         (recur env

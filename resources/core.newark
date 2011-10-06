@@ -45,3 +45,25 @@
 
 (define-syntax when 
   [(when test body ...) (if test (begin body ...))])
+
+(define-syntax ->
+  [(-> x)            x]
+  [(-> x (y ys ...)) (y x ys ...)]
+  [(-> x y)          (y x)]
+  [(-> x y zs ...)   (-> (-> x y) zs ...)])
+
+(define-syntax ->>
+  [(->> x)            x]
+  [(->> x (y ys ...)) (y ys ... x)]
+  [(->> x y)          (y x)]
+  [(->> x y zs ...)   (->> (->> x y) zs ...)])
+
+(define-syntax doto*
+  [(doto* obj) obj]
+  [(doto* obj expr exprs ...)
+   (begin (-> obj expr) (doto* obj exprs ...))])
+
+(define-syntax doto
+  [(doto expr exprs ...)
+   (let [(obj expr)]
+     (doto* obj exprs ...))])
