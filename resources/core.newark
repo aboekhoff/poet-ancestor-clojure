@@ -1,0 +1,47 @@
+;; on load we compile this file
+;; all definitions here are added to any client environment
+
+(define-syntax let*
+  [(let* [] body ...) 
+   (let [] body ...)]
+
+  [(let* [(name value) more ...] body ...)
+   (let [(name value)] (let* [more ...] body ...))])
+
+(define-syntax cond
+  [(cond) #nil]
+
+  [(cond [:else body ...])
+   (begin body ...)]
+
+  [(cond [test body ...] more ...)
+   (if test (begin body ...) (cond more ...))])
+
+(define-syntax case* 
+  [(case* _) #nil]
+
+  [(case* _ [:else body ...])
+   (begin body ...)]
+
+  [(case* val [test body ...] more ...)
+   (if (= val test)
+       (begin body ...)
+       (case* val more ...))])
+
+(define-syntax case
+  [(case expr clauses ...)
+   (let [val expr] 
+     (case* val clauses ...))])
+
+(define-syntax or
+  [(or) #nil]
+  [(or x) x]
+  [(or x xs ...) (let [(x* x)] (if x* x* (or xs ...)))])
+
+(define-syntax and
+  [(and) #t]
+  [(and x) x]
+  [(and x xs ...) (let [(x* x)] (if x* (and xs ...) x*))])
+
+(define-syntax when 
+  [(when test body ...) (if test (begin body ...))])

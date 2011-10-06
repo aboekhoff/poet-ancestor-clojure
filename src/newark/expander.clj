@@ -16,7 +16,6 @@
 (defn maybe-resolve-to-function-macro [env form]
   (when (seq? form)
     (let [denotation (env/resolve env (first form))]
-      (prn denotation)
       (when (fn? denotation) denotation))))
 
 (defn maybe-resolve-to-symbol-macro [env form]
@@ -25,7 +24,6 @@
       (when (fn? denotation) denotation))))
 
 (defn macroexpand-1 [e x]
-  (prn "macroexpand-1: " x)
   (if-let [macro (or (maybe-resolve-to-function-macro e x)
                      (maybe-resolve-to-symbol-macro e x))]
     (macro x)
@@ -163,18 +161,58 @@
 (defn front-dotted? [s]
   (re-matches #"^\.[^\.]+$" (str s)))
 
+(defn maybe-resolve-to-operator [env form]
+  (let [denotation (env/resolve env form)]
+    (and (vector? denotation)
+         (= (first denotation) :OP)
+         denotation)))
+
+(defn expand-dot-call [env head tail]
+  [:CALL
+   [:PROJECT
+    (expand-form env (first tail))
+    [:CONSTANT (apply str (rest (str head)))]]    
+   (expand-forms env (rest tail))])
+
+(defn operator? [x]
+  (and (vector? x)
+       (= :OP (first x))))
+
+(defn stepmap [f xs]
+  (if (> (count xs) 1)
+      (cons (f (take 2 xs)) (stepmap f (rest xs)))
+      '()))
+
+(defn expand-logical-operator [op args]
+  (case (count args)
+    0 (throw (RuntimeException. (str op " requires at least one argument")))
+    1 true
+    2 [:OPCALL op args]
+    (let [steps (stepmap (fn [args] [:OPCALL op args]) args)]
+      [:OPCALL "&&" steps])))
+
+(defn expand-opcall [[_ type op] args]
+  (case type
+    :FOLD   [:OPCALL op args]
+    :BINARY [:OPCALL op args]    
+    :UNARY  [:OPCALL op args]
+    :LOGIC  (expand-logical-operator op args)))
+
+(defn expand-call* [env head tail]
+  (let [op   (expand-form env head)
+        args (expand-forms env tail)]
+    (if (operator? op)
+      (expand-opcall op args)
+      [:CALL op args])))
+
 (defn expand-call [env head tail]
   (if (front-dotted? head)
-    `(:CALL [:PROJECT
-             ~(expand-form env (first tail))
-             [:CONSTANT ~(apply str (rest (str head)))]]
-            ~(expand-forms env (rest tail)))
-    `(:CALL ~(expand-form env head)
-            ~(expand-forms env tail))))
+    (expand-dot-call env head tail)
+    (expand-call* env head tail)))
 
 (defn expand-for-each-property [env [[property object] & body]]
   (let [obj  (expand-form env object)
-        env* (env/extend-environment)
+        env* (env/extend-environment env)
         prop (env/defvar env* property)
         body (expand-body env* body)]
     [:BEGIN

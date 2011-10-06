@@ -35,7 +35,7 @@
   (let [sanitize* (fn [x] (sanitize x tag))]
     (cond
      (symbol? form) (apply-tag form tag)
-     (list? form)   (apply list (map sanitize* form))
+     (list? form)   (map sanitize* form)
      (vector? form) (vec (map sanitize* form))
      :else          form)))
 
@@ -89,19 +89,50 @@
   {"#define"               :DEFINE
    "#define-syntax"        :DEFINE_SYNTAX
    "#define-symbol-syntax" :DEFINE_SYMBOL_SYNTAX
-   "#if"    :IF
-   "#set!"  :SET!
-   "#let"   :LET
-   "#."     :PROJECT
-   "#fn"    :FN
-   "#while" :WHILE
-   "#begin" :BEGIN
-   "#new"   :NEW
-   "#js"    [:RAW constants/GLOBAL]
-   "#for-each-property" :FOR_EACH_PROPERTY})
+   "#let-syntax"           :LET_SYNTAX  
+   "#let-symbol-syntax"    :LET_SYMBOL_SYNTAX
+   "#if"                   :IF
+   "#set!"                 :SET!
+   "#let"                  :LET
+   "#."                    :PROJECT
+   "#fn"                   :FN
+   "#while"                :WHILE
+   "#begin"                :BEGIN
+   "#new"                  :NEW
+   "#js"                   [:RAW constants/GLOBAL]
+   "#for-each-property"    :FOR_EACH_PROPERTY
+   
+   "#+" [:OP :FOLD "+"]
+   "#-" [:OP :FOLD "-"]
+   "#*" [:OP :FOLD "*"]
+   "#/" [:OP :FOLD "/"]
 
-(defn make-standard-environment [& [namespace]]
-  (let [env (make-environment namespace)]
-    (swap! env assoc :parent (atom {:bindings standard-env*}))
+   "#bit-shift-left"   [:OP :FOLD "<<"]
+   "#bit-shift-right"  [:OP :FOLD ">>"]
+   "#bit-shift-right*" [:OP :FOLD ">>>"]
+   "#bit-and"          [:OP :FOLD "&"]
+   "#bit-or"           [:OP :FOLD "|"]
+   "#bit-xor"          [:OP :FOLD "^"]
+   
+   "#bit-not"    [:OP :UNARY "~"]   
+   "#!"          [:OP :UNARY "!"]
+   "#typeof"     [:OP :UNARY "typeof"]
+   "#instanceof" [:OP :BINARY "instanceof"]
+   
+   "#<"   [:OP :LOGIC "<"]
+   "#>"   [:OP :LOGIC ">"]
+   "#<="  [:OP :LOGIC "<="]
+   "#>="  [:OP :LOGIC ">="]
+   "#="   [:OP :LOGIC "==="]
+   "#!="  [:OP :LOGIC "!=="]
+   "#=?"  [:OP :LOGIC "=="]
+   "#!=?" [:OP :LOGIC "!="]})
+
+(defn make-standard-environment [& [namespace no-core]]
+  (let [env (make-environment namespace)
+        bindings (if no-core
+                   standard-env*
+                   (merge standard-env* @constants/CORE))]
+    (swap! env assoc :parent (atom {:bindings bindings}))
     env))
 

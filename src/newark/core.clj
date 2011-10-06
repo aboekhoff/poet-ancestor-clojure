@@ -12,10 +12,9 @@
 
 (use 'clojure.pprint)
 
-(defn compile-sexp [sexp]
-  (let [env  (env/make-standard-environment)
+(defn compile-sexp [sexp & [env]]
+  (let [env  (or env (env/make-standard-environment))
         ast  (expander/expand-body env sexp)
-        _    (pprint ast)
         ast* (compiler/compile-expansion ast)
         js   (emitter/emit-tokens* ast*)
         js*  (emitter/wrap-toplevel js)]
@@ -33,6 +32,14 @@
   (let [out (str/replace file-descriptor ".newark" ".js")
         js  (compile-file file-descriptor)]
     (spit out js)))
+
+(defn compile-core! []
+  (let [src  (slurp (io/resource "core.newark"))
+        port (reader/string->input-port src "core.newark")
+        sexp (reader/read-all-forms port)
+        env  (env/make-standard-environment "core.newark" true)]
+    (compile-sexp sexp env)
+    (reset! constants/CORE (-> @env :bindings))))
 
 (def watched (atom {}))
 (def watchdir (atom nil))
@@ -80,6 +87,7 @@
                 (recur))))))
 
 (defn -main [& args]
+  (compile-core!)
   (if (or (= (first args) "-w")
           (= (first args) "-watch"))
     (start-watcher!)

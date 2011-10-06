@@ -21,20 +21,12 @@
 ;(when (or #f #nil js.NaN 42)
 ;      (and #t 42))
 
-(define-symbol-syntax troll
-  (begin
-    (js.alert "FUCK")
-    (js.alert "FUCK FUCK")
-    (js.alert "FUCK FUCK THE POWERRR")))
-
-(begin
-  troll
-  troll
-  troll)
+(for-each-property [property js]
+  (js.alert property))
 
 (define x1 (or))
 (define x2 (or 1))
 (define x3 (or 1 2 3))
 
-(let [(x 1) (y 2) (z 3)] (+ x y z))
-(let* [(x 1) (y x) (z y)] (+ x y z))
+(define x4 (+ x1 x2 x3))
+(define x5 (< x1 x2 x3 x4))

@@ -105,7 +105,7 @@
     :FOR_EACH_PROPERTY
     (let [b (simplify b e)
           c (compile-block c nil e)]
-      (statement [:FOR_EACH_PROPERTY a b c])
+      (statement [:FOR_EACH_PROPERTY a b c] e)
       [:CONSTANT nil])
     
     ;; default

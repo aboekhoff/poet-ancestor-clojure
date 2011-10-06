@@ -124,13 +124,9 @@
                   (in-parens (emit a))
                   (SP)
                   (emit-body b))
-    :ENUM     (do (write! "for ")
-                  (in-parens (emit a) (write! " in ") (emit b))
-                  (SP)
-                  (emit-body c))
     :IF       (emit-if a b c)
     :SET!     (do (emit a) (write! " = ") (emit b))
-    :OPERATOR (emit-operator a b) 
+    :OPCALL   (emit-operator a b) 
     :BREAK    (write! "break")
     :RETURN   (do (write! "return ") (emit a))
     :DECLARE  (do (write! "var ") (commas a))
@@ -142,6 +138,11 @@
     :COMMENT  (do (write! "\n/* ")
                   (write! a)
                   (write! " */\n"))
+    :FOR_EACH_PROPERTY
+    (do (write! "for ")
+        (in-parens (emit a) (write! " in ") (emit b))
+        (SP)
+        (emit-body c))
     :VAR
     (case a
       :GLOBAL (write! (str constants/USER "['" d "$" c "']"))
