@@ -44,7 +44,8 @@
   [(and x xs ...) (let [(x* x)] (if x* (and xs ...) x*))])
 
 (define-syntax when 
-  [(when test body ...) (if test (begin body ...))])
+  [(when test body ...) 
+   (if test (begin body ...) #nil)])
 
 (define-syntax ->
   [(-> x)            x]
