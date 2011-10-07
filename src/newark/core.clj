@@ -77,7 +77,7 @@
 
 (defn start-watcher! []
   (reset! watchdir (.getCanonicalPath (io/file ".")))
-  (println watchdir)
+  (println "watching" watchdir)
   (.start
    (Thread. (fn []
               (let [filenames (get-file-list @watchdir)]

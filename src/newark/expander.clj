@@ -76,8 +76,8 @@
        (let [tail (rest form)]
          (if (seq? (first tail))
            (let [[name & params] (first tail)
-                 loc           (env/defvar env name)
-                 body          (rest tail)]
+                 loc             (env/defvar env name)
+                 body            (rest tail)]
              (recur env
                     forms
                     (conj expanded [::FUNCTION_DEFINITION loc params body])))
@@ -144,10 +144,13 @@
 
 (defn expand-symbol [e x]
   (let [den (env/resolve e x)]
+    (prn "resolved symbol: " x den)
     (cond
-     den den
+     den         den
      (dotted? x) (expand-dotted-symbol e x)
-     :else       (env/defvar (env/get-environment-root e) x))))
+     :else
+     (do (println (str "[WARNING] use of unbound symbol: " x))
+         (env/defvar (env/get-environment-root e) x)))))
 
 (defn parse-params [params]
   (let [[pparams kwparams] (split-with symbol? params)       
@@ -166,8 +169,8 @@
     [:FN params* body*]))
 
 (defn expand-let [env bindings body]
-  (let [exprs (doall (for [[_ expr] bindings] (expand-form env expr)))
-        env*  (env/extend-environment env)
+  (let [env*  (env/extend-environment env)
+        exprs (doall (for [[_ expr] bindings] (expand-form env expr)))        
         locs  (doall (for [[sym _] bindings] (env/defvar env* sym)))
         defs  (doall (for [[x y] (map list locs exprs)] [:DEF x y]))
         body  (expand-body env* body)]
@@ -266,7 +269,9 @@
       (cons :IF (expand-forms env tail))
       
       :WHILE
-      (cons :WHILE (expand-forms env tail))
+      [:WHILE
+       (expand-form env (first tail))
+       (expand-body env (rest tail))]
       
       :NEW
       (cons :NEW (expand-forms env tail))

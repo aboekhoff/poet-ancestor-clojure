@@ -31,11 +31,19 @@
 (defn symbol->key [sym]
   (str (str/join ":" (-> sym meta ::tags)) "#" (str sym)))
 
+(defn key->symbol [sym]
+  (let [string (str sym)
+        name (str/replace string #"^([\d+]:?)*#" "")
+        tags (str/replace string #"#.*" "")       
+        tags (when (seq tags)
+               (map #(Integer/parseInt %) (str/split tags #":")))]
+    (with-meta (symbol nil name) {::tags tags})))
+
 (defn sanitize [form tag]
   (let [sanitize* (fn [x] (sanitize x tag))]
     (cond
      (symbol? form) (apply-tag form tag)
-     (list? form)   (map sanitize* form)
+     (seq? form)    (map sanitize* form)
      (vector? form) (vec (map sanitize* form))
      :else          form)))
 

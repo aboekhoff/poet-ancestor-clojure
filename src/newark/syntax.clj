@@ -1,5 +1,6 @@
 (ns newark.syntax
-  (:use [newark.env :only [sanitize make-tag make-environment]]))
+  (:use [newark.env :only [sanitize make-tag make-environment
+                           symbol->key key->symbol]]))
 
 (def dots (symbol "..."))
 (defn dots? [x] (= x dots))
@@ -17,9 +18,10 @@
             (reducer f (last xs) (butlast xs))))
   ([f x xs] (reduce (fn ([x y] (f y x))) x (reverse xs))))
 
-(defn with-meta* [obj metadata]
+(defn with-meta* [obj newmeta]
   (if (instance? clojure.lang.IMeta obj)
-    (with-meta obj metadata)
+    (let [oldmeta (meta obj)]
+      (with-meta obj (merge oldmeta newmeta)))
     obj))
 
 ;; let's assume all patterns all well formed
@@ -30,7 +32,7 @@
   ([p acc]
      (cond
       (dots? p)    acc
-      (symbol? p)  (cons p acc)
+      (symbol? p)  (cons (symbol->key p) acc)
       (seq? p)     (concat acc (mapcat extract-symbols p))
       (vector? p)  (concat acc (mapcat extract-symbols p))
       :else        acc)))
@@ -51,7 +53,7 @@
 
 (defn match-sexp [p t]
   (cond
-   (symbol? p)  {p t}
+   (symbol? p)  {(symbol->key p) t}
    (vector? p)  (when (vector? t)
                   (if (and (empty? p) (empty? t))
                     {}
@@ -89,13 +91,19 @@
 
 (defn compile-template [x ids]
   (cond
-   (symbol? x) (if (get ids x) [:GET x] [:PUT x])
+   (symbol? x) (let [x* (symbol->key x)]
+                 (if (get ids x*)
+                   [:GET x*]
+                   [:PUT x]))
+   
    (seq? x)    (if (empty? x)
                  [:PUT x]
                  [:SEQ (compile-template* x ids)])
+   
    (vector? x) (if (empty? x)
                  [:PUT x]
                  [:VEC (compile-template* x ids)])
+   
    :else       [:PUT x]))
 
 (defn compile-template* [xs ids]
@@ -141,11 +149,11 @@
 
 (defn make-matcher-1 [pattern template]
   (let [idents   (extract-symbols pattern)
-        template (compile-template template (set idents))]
+        template* (compile-template template (set idents))]
     (fn [fail]
       (fn [input]
         (if-let [data (match-sexp pattern (rest input))]
-          (expand-template template data)
+          (expand-template template* data)
           (fail input))))))
 
 (defn gen-err [pats]
@@ -170,10 +178,10 @@
   (let [matcher (make-matcher* pts)]
     (fn [input]
       (let [tag (make-tag env)]
-        (-> input
+        (-> input           
             (sanitize tag)
-            (matcher)
-            (sanitize tag)            
+            (matcher)          
+            (sanitize tag)
             (with-meta* {:position (-> input meta :position)}))))))
 
 (defn make-symbol-syntax [env template]
