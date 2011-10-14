@@ -40,10 +40,11 @@
 (defn expand-form [env form]
   (let [x (macroexpand env form)]
     (cond
-     (symbol? x) (expand-symbol env x)
-     (seq? x)    (expand-list env x)
-     (vector? x) (expand-array env x)
-     :else       [:CONSTANT x])))
+     (symbol? x)  (expand-symbol env x)
+     (seq? x)     (expand-list env x)
+     (vector? x)  (expand-array env x)
+     (keyword? x) [:CONSTANT (name x)]
+     :else        [:CONSTANT x])))
 
 (defn expand-forms [env xs]
   (doall (map (fn [x] (expand-form env x)) xs)))
@@ -144,7 +145,6 @@
 
 (defn expand-symbol [e x]
   (let [den (env/resolve e x)]
-    (prn "resolved symbol: " x den)
     (cond
      den         den
      (dotted? x) (expand-dotted-symbol e x)
@@ -254,7 +254,11 @@
         (expand-body env* tail))
       
       :SET!
-      (cons :SET! (expand-forms env tail))
+      (case (count tail)
+        2 `[:SET! ~@(expand-forms env tail)]
+        3 (let [[obj prop val] (expand-forms env tail)]
+            [:SET! [:PROJECT obj prop] val])
+        (syntax-error form "SET! requries exactly 2 or 3 arguments"))
       
       :PROJECT
       (cons :PROJECT (expand-forms env tail))
@@ -274,10 +278,15 @@
        (expand-body env (rest tail))]
       
       :NEW
-      (cons :NEW (expand-forms env tail))
+      (let [call (expand-call env (first tail) (rest tail))]
+        [:NEW call])
 
       :FOR_EACH_PROPERTY
       (expand-for-each-property env tail)
+
+      :THROW
+      (let [err (expand-form env (first tail))]
+        [:THROW err])
       
       ;; else
       (expand-call env head tail))))

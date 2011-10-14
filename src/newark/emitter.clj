@@ -8,8 +8,8 @@
        (str/join "," args) ");"))
 
 (defn wrap-toplevel [code]
-  (wrap [constants/GLOBAL]
-        ["this"]
+  (wrap []
+        []
         (str constants/PRELUDE code)))
 
 (def accumulator (StringBuilder.))
@@ -80,7 +80,7 @@
     (write! " else ")    
     (if (and (if-token? (first else))
              (= 1 (count else)))
-      (emit else)      
+      (apply emit-if (rest (first else)))      
       (emit-body else))))
 
 (defn emit-operator [opsym tokens]

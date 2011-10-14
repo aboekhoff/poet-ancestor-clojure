@@ -30,7 +30,7 @@
 
 (define-syntax case
   [(case expr clauses ...)
-   (let [val expr] 
+   (let [(val expr)] 
      (case* val clauses ...))])
 
 (define-syntax or

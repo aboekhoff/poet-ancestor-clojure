@@ -4,7 +4,9 @@
 
 (declare read-form
          read-whitespace
-         set-reader-macro)
+         set-reader-macro
+         read-list
+         read-vector)
 
 (def macros (atom {}))
 
@@ -48,24 +50,26 @@
 (defn get-position [port]
   (select-keys @port [:origin :offset :line :column]))
 
-;; for now we dont really dispatch, just return constants
-;; may extend for heredocs but probably after bootstrap
+(def dispatch-macros (atom {}))
+(defn set-dispatch-macro! [dispatch-char macro]
+  (swap! dispatch-macros assoc dispatch-char macro))
 
-(def dispatch-macros
-  {"t"     true
-   "f"     false
-   "true"  true   
-   "false" false
-   "nil"   nil})
+(defn immediate-value [strings value]
+  (let [validator (set strings)]
+    (fn [port]
+      (let [string (read-until terminal? port)]
+        (if (get validator string)
+          value
+          (throw (RuntimeException.
+                  (str "invalid dispatch macro: #" string))))))))
 
 (defn read-dispatch-macro [port]
   (let [position (get-position port)
-        _        (read-char port)
-        string   (read-until terminal? port)]    
-    (if (contains? dispatch-macros string)
-      (get dispatch-macros string)
+        _        (read-char port)]
+    (if-let [macro (get @dispatch-macros (peek-char port))]
+      (macro port)
       (throw (RuntimeException.
-              (str "invalid dispatch macro: #" string " at " position))))))
+              (str "invalid dispatch macro: #" (peek-char port) " at " position))))))
 
 (defn eof! [port]
   (throw (RuntimeException.
@@ -82,8 +86,6 @@
     (throw (RuntimeException.
             (str "unclosed " descriptor " at " position)))))
 
-
-
 (defn read-delimited-list [port end? process descriptor]
   (let [position (get-position port)]
     (read-char port)
@@ -95,27 +97,22 @@
             (unclosed-list-error descriptor position)
             (recur (conj elements elt))))))))
 
+(def open->close {\( \) \[ \] \{ \}})
+
 (defn read-list [port]
-  (read-delimited-list
-   port
-   (fn [port]
-     (read-whitespace port)
-     (if (= \) (peek-char port))
-       (do (read-char port) true)
-       false))
-   (fn [x] (apply list x))
-   "list"))
+  (let [end-char (open->close (peek-char port))]
+    (read-delimited-list
+     port
+     (fn [port]
+       (read-whitespace port)
+       (if (= end-char (peek-char port))
+         (do (read-char port) true)
+         false))
+     (fn [x] (apply list x))
+     "list")))
 
 (defn read-vector [port]
-  (read-delimited-list
-   port
-   (fn [port]
-     (read-whitespace port)
-     (if (= \] (peek-char port))
-       (do (read-char port) true)
-       false))
-   vec
-   "array"))
+  (vec (read-list port)))
 
 (defn read-whitespace [port]
   (loop [in-comment? false]
@@ -217,9 +214,21 @@
   (doseq [c x] (set-reader-macro c f)))
 
 (set-reader-macro \# read-dispatch-macro)
+
 (set-reader-macro \( read-list)
+(set-reader-macro \[ read-list)
+(set-reader-macro \{ read-list)
+
 (set-reader-macro \) (mismatched-delimiter \]))
-(set-reader-macro \[ read-vector)
 (set-reader-macro \] (mismatched-delimiter \]))
+(set-reader-macro \} (mismatched-delimiter \]))
+
 (set-reader-macro \" read-string-literal)
 (set-reader-macro " \n\r\f\t\b;" read-whitespace)
+
+(set-dispatch-macro! \t (immediate-value ["t" "true"] true))
+(set-dispatch-macro! \f (immediate-value ["f" "false"] false))
+(set-dispatch-macro! \n (immediate-value ["nil"] nil))
+(set-dispatch-macro! \( read-vector)
+(set-dispatch-macro! \[ read-vector)
+(set-dispatch-macro! \{ read-vector)

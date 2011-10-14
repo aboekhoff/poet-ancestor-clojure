@@ -77,9 +77,8 @@
       [:CALL a b])
 
     :NEW
-    (let [a (simplify a e)
-          b (simplify* b e)]
-      [:NEW a b])
+    (let [a* (simplify a e)]
+      [:NEW a])
 
     :OPCALL
     (let [b (simplify* b e)]
@@ -120,7 +119,7 @@
       (recur xs (conj acc (simplify x e)))
       acc)))
 
-(defn compile [[tag a b c d :as x] t e]  
+(defn compile [[tag a b c d :as x] t e]
   (case tag        
     :CONSTANT
     (pure x t e)
@@ -129,7 +128,7 @@
     (pure x t e)
     
     :ARRAY
-    (let [a* (simplify* a)]
+    (let [a* (simplify* a e)]
       (pure [:ARRAY a*] t e))
     
     :BEGIN
@@ -179,9 +178,8 @@
       (pure [:OPCALL a b*] t e))
 
     :NEW
-    (let [a* (simplify a e)
-          b* (simplify* b e)]
-      (expression [:NEW a* b*] t e))
+    (let [a* (simplify a e)]
+      (expression [:NEW a*] t e))
    
     :CALL
     (let [a* (simplify a e)
