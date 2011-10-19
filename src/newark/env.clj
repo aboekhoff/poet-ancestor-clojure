@@ -129,6 +129,8 @@
    "#!"          [:OP :UNARY "!"]
    "#typeof"     [:OP :UNARY "typeof"]
    "#instanceof" [:OP :BINARY "instanceof"]
+
+   "#mod" [:OP :BINARY "%"]
    
    "#<"   [:OP :LOGIC "<"]
    "#>"   [:OP :LOGIC ">"]
