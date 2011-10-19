@@ -2,6 +2,7 @@
   (:refer-clojure :exclude [macroexpand macroexpand-1])
   (:require [newark.env :as env]
             [newark.syntax :as syntax]
+            [newark.reader :as reader]
             [clojure.string :as str]))
 
 (declare expand-symbol expand-list expand-array expand-function)
@@ -64,6 +65,9 @@
 (defn begin? [env form]
   (resolves-to? env form :BEGIN))
 
+(defn include? [env form]
+  (resolves-to? env form :INCLUDE))
+
 (defn expand-body* [env forms expanded]
   (if (empty? forms)
     expanded
@@ -72,6 +76,12 @@
       (cond
        (begin? env form)
        (recur env (concat (rest form) forms) expanded)
+
+       (include? env form)
+       (let [sexps (apply concat
+                     (for [name (rest form)]
+                       (reader/read-file (str name))))]
+         (recur env (concat sexps forms) expanded))
        
        (definition? env form)
        (let [tail (rest form)]

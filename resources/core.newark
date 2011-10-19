@@ -36,12 +36,12 @@
 (define-syntax or
   [(or) #nil]
   [(or x) x]
-  [(or x xs ...) (let [(x* x)] (if x* x* (or xs ...)))])
+  [(or x xs ...) (let ([x* x]) (if x* x* (or xs ...)))])
 
 (define-syntax and
   [(and) #t]
   [(and x) x]
-  [(and x xs ...) (let [(x* x)] (if x* (and xs ...) x*))])
+  [(and x xs ...) (let ([x* x]) (if x* (and xs ...) x*))])
 
 (define-syntax when 
   [(when test body ...) 
@@ -68,3 +68,21 @@
   [(doto expr exprs ...)
    (let [(obj expr)]
      (doto* obj exprs ...))])
+
+(define-syntax for-each/array
+  [(for-each/array ([var array]) body ...) 
+   (let ([i 0] [ii (. array "length")])
+     (while (< i ii)
+       (let ([var (. array i)])
+         (set! i (+ i 1))
+         (begin body ...))))]
+  [(for-each/array ([var array] more ...) body ...)
+   (for-each/array ([var array]) 
+     (for-each/array (more ...) body ...))])
+
+(define-syntax for/array 
+  [(for/array bindings body ...)
+   (let [(result (js.Array))]
+     (for-each/array bindings
+       (.push result (begin body ...)))
+     result)])

@@ -109,6 +109,9 @@
    "#new"                  :NEW
    "#js"                   [:RAW constants/GLOBAL]
    "#for-each-property"    :FOR_EACH_PROPERTY
+   "#throw"                :THROW
+   "#raw"                  :RAW
+   "#include"              :INCLUDE
    
    "#+" [:OP :FOLD "+"]
    "#-" [:OP :FOLD "-"]

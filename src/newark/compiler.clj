@@ -106,6 +106,10 @@
           c (compile-block c nil e)]
       (statement [:FOR_EACH_PROPERTY a b c] e)
       [:CONSTANT nil])
+
+    :THROW
+    (do (compile node nil e)
+        [:CONSTANT nil])
     
     ;; default
 
@@ -190,7 +194,11 @@
     (pure (compile-fn a b) t e)
 
     :RAW
-    (pure [:RAW a] t e)))
+    (pure [:RAW a] t e)
+
+    :THROW
+    (let [a* (simplify a e)]
+      (statement [:THROW a*]))))
 
 (defn compile-block [x t e]
   (let [scope (extend-scope e)]
