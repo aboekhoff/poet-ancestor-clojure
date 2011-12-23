@@ -192,3 +192,5 @@
             output* (sanitize output tag)]
         output*))))
 
+(defn make-macro [defining-env macro]
+  (fn [input] (macro defining-env calling-env input)))

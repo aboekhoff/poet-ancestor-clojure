@@ -86,3 +86,18 @@
      (for-each/array bindings
        (.push result (begin body ...)))
      result)])
+
+(define-syntax loop
+  [(loop return body ...)
+   (let ((sentinel #t)
+         (result #nil))
+     (let-syntax ((return 
+                   ((return)     (begin (set! sentinel #f) (set! result #nil)))
+                   ((return val) (begin (set! sentinel #f) (set! result val)))))
+       (while sentinel body ...)))])
+
+(define-syntax callf
+  [(callf f location args ...)
+   (set! location (f location args ...))])
+
+(define-syntax )

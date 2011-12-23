@@ -198,7 +198,7 @@
 
     :THROW
     (let [a* (simplify a e)]
-      (statement [:THROW a*]))))
+      (statement [:THROW a*] e))))
 
 (defn compile-block [x t e]
   (let [scope (extend-scope e)]

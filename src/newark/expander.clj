@@ -56,6 +56,9 @@
 (defn definition? [env form]
   (resolves-to? env form :DEFINE))
 
+(defn include? [env form]
+  (resolves-to? env form :INCLUDE))
+
 (defn macro-definition? [env form]
   (resolves-to? env form :DEFINE_SYNTAX))
 
@@ -65,10 +68,7 @@
 (defn begin? [env form]
   (resolves-to? env form :BEGIN))
 
-(defn include? [env form]
-  (resolves-to? env form :INCLUDE))
-
-(defn expand-body* [env forms expanded]
+(defn expand-body* [env forms expanded]  
   (if (empty? forms)
     expanded
     (let [[form & forms] forms
@@ -250,6 +250,25 @@
      [:DEF prop [:CONSTANT nil]]
      [:FOR_EACH_PROPERTY prop obj body]]))
 
+(defn expand-let-syntax [env bindings body]
+  (if (empty? bindings)
+    (expand-body env body)
+    (let [[name & stx] (first bindings)
+          _           (prn stx)
+          env*        (env/extend-environment env)
+          macro       (syntax/make-syntax env* stx)]
+      (env/bind env* name macro)
+      (recur env* (rest bindings) body))))
+
+(defn expand-let-symbol-syntax [env bindings body]
+  (if (empty? bindings)
+    (expand-body env body)
+    (let [[name form] (first bindings)
+          env*        (env/extend-environment env)
+          macro       (syntax/make-symbol-syntax env* form)]
+      (env/bind env* name macro)
+      (recur env* (rest bindings) body))))
+
 (defn expand-list [env form]
   (let [[head & tail] form]
     (case (env/resolve env head)
@@ -259,6 +278,12 @@
       :DEFINE_SYNTAX
       (baddef form)
 
+      :LET_SYNTAX
+      (expand-let-syntax env (first tail) (rest tail))
+
+      :LET_SYMBOL_SYNTAX
+      (expand-let-symbol-syntax env (first tail) (rest tail))
+      
       :BEGIN
       (let [env* (env/extend-environment env)]
         (expand-body env* tail))
