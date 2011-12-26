@@ -3,6 +3,7 @@
   (:require
    [clojure.java.io :as io]
    [clojure.string :as str]
+   [clojure.pprint :as pp]
    [newark.reader :as reader]
    [newark.env :as env]
    [newark.expander :as expander]
@@ -13,9 +14,11 @@
 (use 'clojure.pprint)
 
 (defn compile-sexp [sexp & [env]]
-  (let [env  (or env (env/make-standard-environment))
+  (let [env  (or env (env/make-standard-environment "USER"))
         ast  (expander/expand-body env sexp)
-        ast* (compiler/compile-expansion ast)
+        ; _    (pp/pprint ast)
+        ast* (compiler/compile-expansion env ast)
+        ; _    (pp/pprint ast*)
         js   (emitter/emit-tokens* ast*)
         js*  (emitter/wrap-toplevel js)]
     js*))
@@ -35,11 +38,11 @@
 
 (defn compile-core! []
   (let [src  (slurp (io/resource "core.newark"))
-        port (reader/string->input-port src "core.newark")
+        port (reader/string->input-port src "newark-core")
         sexp (reader/read-all-forms port)
-        env  (env/make-standard-environment "core.newark" true)]
-    (compile-sexp sexp env)
-    (reset! constants/CORE (-> @env :bindings))))
+        env  (env/make-standard-environment "newark-core" true)]    
+    (println (compile-sexp sexp env))
+    (reset! constants/CORE env)))
 
 (def watched (atom {}))
 (def watchdir (atom nil))
@@ -87,7 +90,8 @@
                 (recur))))))
 
 (defn -main [& args]
-  (compile-core!)
+  (println "NEWARK COMPILER WARMING UP")
+  (compile-core!)  
   (if (or (= (first args) "-w")
           (= (first args) "-watch"))
     (start-watcher!)

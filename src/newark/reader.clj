@@ -1,12 +1,16 @@
 (ns newark.reader
   (:refer-clojure :exclude [read-string])
-  (:require [clojure.java.io :as io]))
+  (:require [clojure.java.io :as io])
+  (:require [newark.env :as env]))
 
 (declare read-form
          read-whitespace
          set-reader-macro
          read-list
          read-vector)
+
+(defn base-symbol [name]
+  (env/paint (symbol name) env/base-color))
 
 (def macros (atom {}))
 
@@ -51,6 +55,7 @@
   (select-keys @port [:origin :offset :line :column]))
 
 (def dispatch-macros (atom {}))
+
 (defn set-dispatch-macro! [dispatch-char macro]
   (swap! dispatch-macros assoc dispatch-char macro))
 
@@ -118,6 +123,7 @@
   (loop [in-comment? false]
     (let [c (read-char port)]
       (case c
+        nil       nil
         \space    (recur in-comment?)
         \tab      (recur in-comment?)
         \newline  (recur false)
@@ -126,8 +132,7 @@
         \;        (recur true)
                   (if in-comment?
                     (recur true)
-                    (do (when c (unread-char port))
-                        ::CONTINUE))))))
+                    (unread-char port))))))
 
 (def escape-map
   {\n \newline
@@ -174,13 +179,11 @@
     (parse-atom string position)))
 
 (defn read-form [port]
+  (read-whitespace port)
   (let [c (peek-char port)]
     (cond
      (nil? c)    ::EOF
-     (@macros c) (let [v ((@macros c) port)]
-                   (if (= v ::CONTINUE)
-                     (recur port)
-                     v))
+     (@macros c) ((@macros c) port)
      :else       (read-atom port))))
 
 (defn read-all-forms [port] 
@@ -192,6 +195,11 @@
 
 (defn read-string [string]
   (read-form (string->input-port string)))
+
+(defn read-quote [port]
+  (read-char port)
+  (let [form (read-form port)]
+    (list (base-symbol "quote") form)))
 
 (defmulti read-file type)
 
@@ -214,6 +222,8 @@
   (doseq [c x] (set-reader-macro c f)))
 
 (set-reader-macro \# read-dispatch-macro)
+
+(set-reader-macro \' read-quote)
 
 (set-reader-macro \( read-list)
 (set-reader-macro \[ read-list)

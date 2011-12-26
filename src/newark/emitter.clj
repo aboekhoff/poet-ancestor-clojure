@@ -69,6 +69,24 @@
   (doseq [t tokens]
     (emit t) (SC) (NL)))
 
+(defn global [x y]
+  (str constants/USER "['" x "$" y "']"))
+
+(defn label [x y]
+  (str "label_" x "_" y))
+
+(defn local [x y]
+  (str "L" x "_" y))
+
+(defn arg [x y]
+  (str "A" x "_" y))
+
+(defn emit-label [[_ x y]]
+  (write! (str (label x y) ":")))
+
+(defn emit-break [[_ x y]]
+  (write! (str "break " (label x y))))
+
 (defn if-token? [t] (= :IF (first t)))
 
 (defn emit-if [test then else]
@@ -76,7 +94,7 @@
   (in-parens (emit test))
   (SP)
   (emit-body then)
-  (when else
+  (when (seq else)
     (write! " else ")    
     (if (and (if-token? (first else))
              (= 1 (count else)))
@@ -107,7 +125,25 @@
     (write! " finally ")
     (emit-body f)))
 
-(defn emit [[tag a b c d :as token]]
+(defn emit-slice [to from offset idx len]
+  (write! "for(;")  
+  (emit idx)
+  (write! "<")
+  (emit len)
+  (write! ";")
+  (emit idx)
+  (write! "++) { ")
+  (emit to)
+  (write! "[")
+  (emit idx)
+  (write! (str "-" offset))
+  (write! "]=")
+  (emit from)
+  (write! "[")
+  (emit idx)
+  (write! "]; }"))
+
+(defn emit [[tag a b c d e :as token]]
   (case tag
     :CONSTANT (emit-literal a)
     :RAW      (write! a)
@@ -115,6 +151,11 @@
     :ARRAY    (in-brackets (commas a))
     :PROJECT  (do (emit a) (in-brackets (emit b)))
     :CALL     (do (emit a) (comma-list b))
+    :BLOCK    (do (emit-label a)
+                  (emit-body b))
+    :LOOP     (do (emit-label a)
+                  (write! "for(;;)")
+                  (emit-body b))
     :FN       (in-parens
                (write! "function ")
                (comma-list a)
@@ -125,11 +166,13 @@
                   (SP)
                   (emit-body b))
     :IF       (emit-if a b c)
-    :SET!     (do (emit a) (write! " = ") (emit b))
+    :SET      (do (emit a) (write! " = ") (emit b))
     :OPCALL   (emit-operator a b) 
-    :BREAK    (write! "break")
+    :BREAK    (emit-break a)
     :RETURN   (do (write! "return ") (emit a))
-    :DECLARE  (do (write! "var ") (commas a))
+    :DECLARE  (when (seq a)
+                (write! "var ")
+                (commas a))
     :NEW      (do (write! "new ") (emit a))
     :TRY      (emit-try-catch a b c)
     :TRY*     (emit-try-catch a b c d)
@@ -143,11 +186,18 @@
         (in-parens (emit a) (write! " in ") (emit b))
         (SP)
         (emit-body c))
-    :VAR
-    (case a
-      :GLOBAL (write! (str constants/USER "['" d "$" c "']"))
-      :LOCAL  (write! (str "v" b))
-      :AUTO   (write! (str "_" b)))))
+
+    :ARG
+    (write! (arg a b))
+    
+    :LOCAL
+    (write! (local a b))
+
+    :GLOBAL
+    (write! (global a b))
+
+    :SLICE
+    (emit-slice a b c d e)))
 
 (defn emit-tokens [tokens]
   (clear!)

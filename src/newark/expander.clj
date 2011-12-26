@@ -18,18 +18,18 @@
 
 (defn maybe-resolve-to-function-macro [env form]
   (when (seq? form)
-    (let [denotation (env/resolve env (first form))]
+    (let [denotation (env/resolve-symbol env (first form))]
       (when (fn? denotation) denotation))))
 
 (defn maybe-resolve-to-symbol-macro [env form]
   (when (symbol? form)
-    (let [denotation (env/resolve env form)]
+    (let [denotation (env/resolve-symbol env form)]
       (when (fn? denotation) denotation))))
 
 (defn macroexpand-1 [e x]
   (if-let [macro (or (maybe-resolve-to-function-macro e x)
                      (maybe-resolve-to-symbol-macro e x))]
-    (macro x)
+    (macro e x)
     x))
 
 (defn macroexpand [e x]
@@ -51,7 +51,7 @@
   (doall (map (fn [x] (expand-form env x)) xs)))
 
 (defn resolves-to? [env form val]
-  (and (seq? form) (= val (env/resolve env (first form)))))
+  (and (seq? form) (= val (env/resolve-symbol env (first form)))))
 
 (defn definition? [env form]
   (resolves-to? env form :DEFINE))
@@ -84,29 +84,20 @@
          (recur env (concat sexps forms) expanded))
        
        (definition? env form)
-       (let [tail (rest form)]
-         (if (seq? (first tail))
-           (let [[name & params] (first tail)
-                 loc             (env/defvar env name)
-                 body            (rest tail)]
-             (recur env
-                    forms
-                    (conj expanded [::FUNCTION_DEFINITION loc params body])))
-           (let [name (first tail)
-                 loc  (env/defvar env name)
-                 expr (second tail)]
-             (recur env
-                    forms
-                    (conj expanded [::DEFINITION loc expr])))))
+       (let [[_ sym expr] form
+             loc          (env/make-var env sym)]
+         (recur env
+                forms
+                (conj expanded [::DEFINITION loc expr])))
 
        (macro-definition? env form)
        (let [macro (syntax/make-syntax env (drop 2 form))]
-         (env/bind env (second form) macro)
+         (env/bind-symbol env (second form) macro)
          (recur env forms expanded))
 
        (symbol-macro-definition? env form)
        (let [macro (syntax/make-symbol-syntax env (nth form 2))]
-         (env/bind env (nth form 1) macro)
+         (env/bind-symbol env (nth form 1) macro)
          (recur env forms expanded))
        
        :else
@@ -116,20 +107,13 @@
   (if (empty? expanded)
     (cons :BEGIN reexpanded)
     (let [[form & expanded] expanded]
-      (case (first form)
-        ::FUNCTION_DEFINITION
-        (let [[_ loc params body] form
-              func (expand-function env params body)]
-          (recur env
-                 expanded
-                 (conj reexpanded [:DEF loc func])))
-            
+      (case (first form)            
         ::DEFINITION
         (let [[_ loc expr] form
               expr* (expand-form env expr)]
           (recur env
                  expanded
-                 (conj reexpanded [:DEF loc expr*])))
+                 (conj reexpanded [:SET loc expr*])))
         
         ::EXPRESSION
         (recur env
@@ -154,37 +138,50 @@
                (rest segs))))))
 
 (defn expand-symbol [e x]
-  (let [den (env/resolve e x)]
+  (let [den (env/resolve-symbol e x)]
     (cond
      den         den
      (dotted? x) (expand-dotted-symbol e x)
      :else
      (do (println (str "[WARNING] use of unbound symbol: " x))
-         (env/defvar (env/get-environment-root e) x)))))
+         (env/make-global e x)))))
+
+(defn make-params [env params index]
+  (when-let [[p & ps] (seq params)]
+    (let [arg [:ARG (:level env) index]]
+      (env/bind-symbol env p arg)
+      (cons arg (make-params env ps (inc index))))))
 
 (defn parse-params [params]
-  (let [[pparams kwparams] (split-with symbol? params)       
-        {:keys [this arguments]} (apply hash-map kwparams)]
-    [pparams this arguments]))
+  (let [params (vec params)
+        len    (count params)
+        last-p (last params)]
+    (if (= last-p '...)
+      [(subvec params 0 (- len 2)) (nth params (- len 2))]
+      [params nil])))
 
-(defn expand-function [env params body]
-  (let [env*    (env/extend-environment env)
-        [a b c] (parse-params params)
-        params* (doall (map #(env/defvar env* %) a))
-        b       (when b (env/defvar env* b))
-        c       (when c (env/defvar env* c))
-        body*   (expand-body env* body)
-        body*   (if b [:BEGIN [:DEF b [:RAW "this"]] body*] body*)
-        body*   (if c [:BEGIN [:DEF c [:RAW "arguments"]] body*] body*)]
-    [:FN params* body*]))
+(defn expand-function [env this args params body]
+  (let [env            (env/extend-scope env)
+        [params &rest] (parse-params params)
+        &rest          (when &rest (env/make-local env &rest))
+        this           (when this  (env/make-local env this))
+        args           (when (or args &rest) (env/make-local env args))
+        params         (make-params env params 0)
+        body           (expand-body env body)
+        body (if &rest [:BEGIN [:&REST &rest args (count params)] body] body)
+        body (if args  [:BEGIN [:SET args [:RAW "arguments"]] body] body)
+        body (if this  [:BEGIN [:SET this [:RAW "this"]] body] body)]
+    
+    [:FN params (:level env) ((:next-local env) :get) body]))
 
 (defn expand-let [env bindings body]
-  (let [env*  (env/extend-environment env)
-        exprs (doall (for [[_ expr] bindings] (expand-form env expr)))        
-        locs  (doall (for [[sym _] bindings] (env/defvar env* sym)))
-        defs  (doall (for [[x y] (map list locs exprs)] [:DEF x y]))
-        body  (expand-body env* body)]
-    `[:BEGIN ~@defs ~body]))
+  (if (empty? bindings)
+    (expand-body env body)
+    (let [[[sym expr] & more] bindings
+          expr* (expand-form env expr)
+          env* (env/extend-symbols env)
+          sym* (env/make-local env* sym)]
+      [:BEGIN [:SET sym* expr*] (expand-let env* more body)])))
 
 (defn expand-array [env array]
   `(:ARRAY ~(expand-forms env array)))
@@ -193,7 +190,7 @@
   (re-matches #"^\.[^\.]+$" (str s)))
 
 (defn maybe-resolve-to-operator [env form]
-  (let [denotation (env/resolve env form)]
+  (let [denotation (env/resolve-symbol env form)]
     (and (vector? denotation)
          (= (first denotation) :OP)
          denotation)))
@@ -243,35 +240,59 @@
 
 (defn expand-for-each-property [env [[property object] & body]]
   (let [obj  (expand-form env object)
-        env* (env/extend-environment env)
-        prop (env/defvar env* property)
+        env* (env/extend-labels env)
+        env* (env/extend-symbols env)
+        loc  (env/make-label env nil)        
+        prop (env/make-local env* property)
         body (expand-body env* body)]
-    [:BEGIN
-     [:DEF prop [:CONSTANT nil]]
-     [:FOR_EACH_PROPERTY prop obj body]]))
+    [:DO_PROPERTIES loc prop obj body]))
 
 (defn expand-let-syntax [env bindings body]
   (if (empty? bindings)
     (expand-body env body)
     (let [[name & stx] (first bindings)
-          _           (prn stx)
-          env*        (env/extend-environment env)
-          macro       (syntax/make-syntax env* stx)]
-      (env/bind env* name macro)
+          env*         (env/extend-symbols env)
+          macro        (syntax/make-syntax env* stx)]
+      (env/bind-symbol env* name macro)
       (recur env* (rest bindings) body))))
 
 (defn expand-let-symbol-syntax [env bindings body]
   (if (empty? bindings)
     (expand-body env body)
     (let [[name form] (first bindings)
-          env*        (env/extend-environment env)
+          env*        (env/extend-symbols env)
           macro       (syntax/make-symbol-syntax env* form)]
-      (env/bind env* name macro)
+      (env/bind-symbol env* name macro)
       (recur env* (rest bindings) body))))
+
+(defn expand-quote [form]
+  (cond
+   (seq? form)    [:ARRAY (vec (map expand-quote form))]
+   (vector? form) [:ARRAY (vec (map expand-quote form))]
+   (symbol? form) [:CONSTANT (name form)]
+   :else          [:CONSTANT form]))
+
+(defn expand-set [env exprs]
+  (let [n (count exprs)]
+    (if (= n 2)
+     (let [[a b] exprs]
+       [:SET (expand-form env a) (expand-form env b)])
+     (let [obj-loc (env/next-local env)
+           obj-expr (expand-form env (first exprs))]
+       (loop [exprs (rest exprs)
+              vals  []]
+         (if (empty? exprs)
+           `[:BEGIN
+             [:SET ~obj-loc ~obj-expr]
+             ~@vals]
+           (let [[a b & more] exprs
+                 a (expand-form env a)
+                 b (expand-form env b)]
+             (recur more (conj vals [:SET [:PROJECT obj-loc a] b])))))))))
 
 (defn expand-list [env form]
   (let [[head & tail] form]
-    (case (env/resolve env head)
+    (case (and (symbol? head) (env/resolve-symbol env head))
       :DEFINE
       (baddef form)
       
@@ -285,32 +306,43 @@
       (expand-let-symbol-syntax env (first tail) (rest tail))
       
       :BEGIN
-      (let [env* (env/extend-environment env)]
+      (let [env* (env/extend-symbols env)]
         (expand-body env* tail))
       
-      :SET!
-      (case (count tail)
-        2 `[:SET! ~@(expand-forms env tail)]
-        3 (let [[obj prop val] (expand-forms env tail)]
-            [:SET! [:PROJECT obj prop] val])
-        (syntax-error form "SET! requries exactly 2 or 3 arguments"))
+      :SET
+      (expand-set env tail)
       
       :PROJECT
-      (cons :PROJECT (expand-forms env tail))
+      (vec (cons :PROJECT (expand-forms env tail)))
 
+      :QUOTE
+      (expand-quote (first tail))
+      
       :LET
       (expand-let env (first tail) (rest tail))
       
       :FN
-      (expand-function env (first tail) (rest tail))
+      (let [[a b c & d] tail]
+        (expand-function env a b c d))
       
       :IF
-      (cons :IF (expand-forms env tail))
+      (let [[a b c] tail]
+        (vec (cons :IF (expand-forms env [a b c]))))
+
+      :BLOCK
+      (let [env*  (env/extend-labels env)
+            label (env/make-label env (first tail))]
+        [:BLOCK label (expand-body env (rest tail))])
       
-      :WHILE
-      [:WHILE
-       (expand-form env (first tail))
-       (expand-body env (rest tail))]
+      :LOOP
+      (let [env   (env/extend-labels env)
+            label (env/make-label env (first tail))]
+        [:LOOP label (expand-body env (rest tail))])
+
+      :RETURN_FROM
+      [:RETURN_FROM
+       (env/resolve-label env (first tail))
+       (expand-form env (second tail))]
       
       :NEW
       (let [call (expand-call env (first tail) (rest tail))]
@@ -325,4 +357,3 @@
       
       ;; else
       (expand-call env head tail))))
-

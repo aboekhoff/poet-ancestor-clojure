@@ -1,103 +1,109 @@
 ;; on load we compile this file
 ;; all definitions here are added to any client environment
 
-(define-syntax let*
-  [(let* [] body ...) 
-   (let [] body ...)]
-
-  [(let* [(name value) more ...] body ...)
-   (let [(name value)] (let* [more ...] body ...))])
-
-(define-syntax cond
+(defsyntax cond
   [(cond) #nil]
 
-  [(cond [:else body ...])
-   (begin body ...)]
-
   [(cond [test body ...] more ...)
-   (if test (begin body ...) (cond more ...))])
+   (if test (do body ...) (cond more ...))])
 
-(define-syntax case* 
-  [(case* _) #nil]
+(defsyntax case* 
+  [(case* _) #f]
 
   [(case* _ [:else body ...])
-   (begin body ...)]
+   (do body ...)]
 
   [(case* val [test body ...] more ...)
    (if (= val test)
-       (begin body ...)
+       (do body ...)
        (case* val more ...))])
 
-(define-syntax case
+(defsyntax case
   [(case expr clauses ...)
    (let [(val expr)] 
      (case* val clauses ...))])
 
-(define-syntax or
-  [(or) #nil]
+(defsyntax or
+  [(or) #f]
   [(or x) x]
   [(or x xs ...) (let ([x* x]) (if x* x* (or xs ...)))])
 
-(define-syntax and
+(defsyntax and
   [(and) #t]
   [(and x) x]
   [(and x xs ...) (let ([x* x]) (if x* (and xs ...) x*))])
 
-(define-syntax when 
+(defsyntax when 
   [(when test body ...) 
-   (if test (begin body ...) #nil)])
+   (if test (do body ...) #nil)])
 
-(define-syntax ->
+(defsyntax ->
   [(-> x)            x]
   [(-> x (y ys ...)) (y x ys ...)]
   [(-> x y)          (y x)]
   [(-> x y zs ...)   (-> (-> x y) zs ...)])
 
-(define-syntax ->>
+(defsyntax ->>
   [(->> x)            x]
   [(->> x (y ys ...)) (y ys ... x)]
   [(->> x y)          (y x)]
   [(->> x y zs ...)   (->> (->> x y) zs ...)])
 
-(define-syntax doto*
+(defsyntax doto*
   [(doto* obj) obj]
   [(doto* obj expr exprs ...)
-   (begin (-> obj expr) (doto* obj exprs ...))])
+   (do (-> obj expr) (doto* obj exprs ...))])
 
-(define-syntax doto
+(defsyntax doto
   [(doto expr exprs ...)
    (let [(obj expr)]
      (doto* obj exprs ...))])
 
-(define-syntax for-each/array
-  [(for-each/array ([var array]) body ...) 
-   (let ([i 0] [ii (. array "length")])
-     (while (< i ii)
-       (let ([var (. array i)])
-         (set! i (+ i 1))
-         (begin body ...))))]
-  [(for-each/array ([var array] more ...) body ...)
-   (for-each/array ([var array]) 
-     (for-each/array (more ...) body ...))])
+(defsyntax call!
+  [(call! callee var args ...)
+   (set! var (callee var args ...))])
 
-(define-syntax for/array 
-  [(for/array bindings body ...)
-   (let [(result (js.Array))]
-     (for-each/array bindings
-       (.push result (begin body ...)))
-     result)])
+(defsyntax fn
+  [(fn (args ...) body ...)
+   (fn* #f #f (args ...) body ...)])
 
-(define-syntax loop
-  [(loop return body ...)
-   (let ((sentinel #t)
-         (result #nil))
-     (let-syntax ((return 
-                   ((return)     (begin (set! sentinel #f) (set! result #nil)))
-                   ((return val) (begin (set! sentinel #f) (set! result val)))))
-       (while sentinel body ...)))])
+(defsyntax def
+  [(def (name args ...) body ...)
+   (def* name (fn (args ...) (block* name body ...)))]
+  [(def name expression)
+   (def* name expression)])
 
-(define-syntax callf
-  [(callf f location args ...)
-   (set! location (f location args ...))])
+;; (defsyntax for-each/array
+;;   [(for-each/array ([var array]) body ...) 
+;;    (let ([i 0] [ii (. array "length")])
+;;      (while (< i ii)
+;;        (let ([var (. array i)])
+;;          (set! i (+ i 1))
+;;          (do body ...))))]
+;;   [(for-each/array ([var array] more ...) body ...)
+;;    (for-each/array ([var array]) 
+;;      (for-each/array (more ...) body ...))])
 
-(define-syntax )
+;; (defsyntax for/array 
+;;   [(for/array bindings body ...)
+;;    (let [(result (js.Array))]
+;;      (for-each/array bindings
+;;        (.push result (do body ...)))
+;;      result)])
+
+;; (defsyntax loop
+;;   [(loop return body ...)
+;;    (let ((sentinel #t)
+;;          (result #nil))
+;;      (let-syntax ((return 
+;;                    ((return)     (do (set! sentinel #f) (set! result #nil)))
+;;                    ((return val) (do (set! sentinel #f) (set! result val)))))
+;;        (while sentinel body ...)))])
+
+;; (defsyntax callf
+;;   [(callf f location args ...)
+;;    (set! location (f location args ...))])
+
+;; (defsyntax )
+
+(def (foo xs ...) xs)
