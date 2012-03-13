@@ -1,14 +1,13 @@
 (ns newark.constants)
 
 (def CORE (atom {}))
+(def NEWARK "N")
 (def GLOBAL "js")
-(def USER* "Newark")
-(def USER (str GLOBAL "." USER*))
 (def PRELUDE
   (str
-   "var " GLOBAL ";\n"
-   "if (typeof window == 'undefined') {"
-   GLOBAL " = global; } else { " GLOBAL " = window; }\n" 
-   "if (typeof "
-       USER " == 'undefined') { "
-       USER " = {} } \n\n"))
+   "var " GLOBAL ",\n"
+   "var " NEWARK ";\n"
+   "if (typeof process == 'undefined') {"
+   GLOBAL " = window; } else { " GLOBAL " = process; }\n"
+   NEWARK " = {};\n"
+   NEWARK "['core::js']=" GLOBAL ";\n"))

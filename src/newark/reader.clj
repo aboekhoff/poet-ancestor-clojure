@@ -1,16 +1,18 @@
 (ns newark.reader
   (:refer-clojure :exclude [read-string])
   (:require [clojure.java.io :as io])
+  (:require [clojure.string :as str])
   (:require [newark.env :as env]))
 
 (declare read-form
          read-whitespace
          set-reader-macro
          read-list
-         read-vector)
+         read-vector
+         parse-symbol)
 
 (defn base-symbol [name]
-  (env/paint (symbol name) env/base-color))
+  (symbol "core" name))
 
 (def macros (atom {}))
 
@@ -30,6 +32,9 @@
 
 (defn peek-char [port]
   (get (@port :chars) (@port :offset)))
+
+(defn peek-chars [port n]
+  (apply str (take n (subvec (@port :chars) (@port :offset)))))
 
 (defn read-char [port]
   (when-let [c (peek-char port)]
@@ -170,8 +175,20 @@
    
    :else
    (if (= \: (first s))
-     (keyword nil (apply str (rest s)))     
-     (with-meta (symbol nil s) {:source-position p}))))
+     (keyword nil (apply str (rest s)))
+     (parse-symbol s p))))
+
+(defn parse-symbol [s p]
+  (if (re-matches #"[^\.]+(\.[^\.]+)+" s)
+    (let [[root & fields] (str/split s #"\.")]
+      (loop [root   (with-meta (symbol nil root) {:source-position p})
+             fields fields]
+        (if (empty? fields)
+          root
+          (recur
+           (list (base-symbol ".") root (first fields))
+           (rest fields)))))
+    (with-meta (symbol nil s) {:source-position p})))
 
 (defn read-atom [port]
   (let [position (get-position port)
@@ -226,8 +243,7 @@
 (set-reader-macro \' read-quote)
 
 (set-reader-macro \( read-list)
-(set-reader-macro \[ read-list)
-(set-reader-macro \{ read-list)
+(set-reader-macro \[ read-vector)
 
 (set-reader-macro \) (mismatched-delimiter \]))
 (set-reader-macro \] (mismatched-delimiter \]))
@@ -239,6 +255,16 @@
 (set-dispatch-macro! \t (immediate-value ["t" "true"] true))
 (set-dispatch-macro! \f (immediate-value ["f" "false"] false))
 (set-dispatch-macro! \n (immediate-value ["nil"] nil))
-(set-dispatch-macro! \( read-vector)
-(set-dispatch-macro! \[ read-vector)
-(set-dispatch-macro! \{ read-vector)
+
+(defn read-heredoc [p]
+  (read-char p)
+  (read-char p)
+  (loop [buf []]
+    (if (= (peek-chars p 2) "#\"")
+      (do
+        (read-char p)
+        (read-char p)
+        (apply str buf))
+      (recur (conj buf (read-char p))))))
+
+(set-dispatch-macro! \" read-heredoc)

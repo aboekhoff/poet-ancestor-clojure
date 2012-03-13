@@ -32,3 +32,6 @@
 
 (defn dictionary-join [dict1 dict2]
   (concat dict1 dict2))
+
+(defn merge-meta [x m]
+  (with-meta x (merge (meta x) m)))

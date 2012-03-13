@@ -1,5 +1,5 @@
 (ns newark.syntax
-  (:use [newark.env :only [sanitize make-color make-environment symbol->key]]))
+  (:use [newark.env :only [sanitize make-tag symbol->key]]))
 
 (def dots (symbol "..."))
 (defn dots? [x] (= x dots))
@@ -176,17 +176,17 @@
 (defn make-syntax [defining-env pts]
   (let [matcher (make-matcher* pts)]
     (fn [calling-env input]
-      (let [color (make-color defining-env calling-env)]
+      (let [tag (make-tag defining-env)]
         (-> input           
-            (sanitize color)
+            (sanitize tag)
             (matcher)          
-            (sanitize color)
+            (sanitize tag)
             (with-meta* {:position (-> input meta :position)}))))))
 
 (defn make-symbol-syntax [defining-env template]
   (let [template* (compile-template template #{})]
     (fn [calling-env input]
-      (let [color   (make-color defining-env calling-env)
+      (let [tag     (make-tag defining-env)
             output  (expand-template template* {})
-            output* (sanitize output color)]
+            output* (sanitize output tag)]
         output*))))
