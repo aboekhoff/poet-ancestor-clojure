@@ -70,7 +70,7 @@
     (emit t) (SC) (NL)))
 
 (defn global [x y]
-  (str constants/NEWARK "['" x "::" y "']"))
+  (str constants/NEWARK "[\"" x "::" y "\"]"))
 
 (defn label [x y]
   (str "label_" x "_" y))
@@ -233,7 +233,11 @@
   (str accumulator))
 
 (defn emit-token [token]
-  (emit-tokens [token]))
+  (clear!)
+  (reset-depth!)
+  (emit token)
+  (write! ";")
+  (str accumulator))
 
 (defn emit-tokens* [tokens]
   (clear!)

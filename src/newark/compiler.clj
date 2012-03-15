@@ -11,7 +11,8 @@
 
 (declare norm norm* norm** norm-list norm-let
          simplify simplify*
-         serialize serialize-let serialize-letrec serialize-fn)
+         serialize serialize-let serialize-letrec serialize-fn
+         simplify-to-atom)
 
 (defn tracer-for [x]
   (fn [y] [:SET! x y]))
@@ -340,6 +341,11 @@
 
 (defn simplify [[tag a b c d :as x]]
   (case tag
+    :FIELD  [:FIELD (simplify a) (simplify b)]
+    (simplify-to-atom x)))
+
+(defn simplify-to-atom [[tag a b c d :as x]]
+    (case tag
     :GLOBAL x
     :VAL    x
     :RAW    x
@@ -357,7 +363,7 @@
     :RAW    (maybe-trace x t)
     :VAR    (maybe-trace (lookup x) t)
 
-    :IF     (let [a (simplify a)
+    :IF     (let [a (simplify-to-atom a)
                   b (serialize-block b t)
                   c (serialize-block c t)]
               (push [:IF a b c]))

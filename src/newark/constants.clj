@@ -6,7 +6,7 @@
 (def PRELUDE
   (str
    "var " GLOBAL ", " NEWARK ";\n"
-   "if (typeof process == 'undefined') {"
+   GLOBAL "= (typeof window == 'undefined') ? global : window;\n"
    GLOBAL " = window; } else { " GLOBAL " = process; }\n"
    NEWARK " = {};\n"
    NEWARK "['core::js']=" GLOBAL ";\n"
