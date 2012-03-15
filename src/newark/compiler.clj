@@ -31,6 +31,90 @@
 (defn norm** [xs]
   (vec (map norm* xs)))
 
+(defn norm-args [pargs]
+  (let [[pargs &rest] (split-with #(not= % '.) pargs)
+        &rest         (when (seq &rest) (second &rest))]
+    [(norm* pargs) (when &rest (norm &rest))]))
+
+(def math
+  {'core/+             '+
+   'core/*             '*
+   'core/-             '-
+   (symbol "core" "/") '/
+   'core/mod           '%
+   'core/div           'div})
+
+(def logic
+  '{core/< <
+    core/> >
+    core/<= <=
+    core/>= >=
+    core/=  =})
+
+(def bits
+  {'core/bit-and          '&
+   'core/bit-or           '|
+   'core/bit-xor          (symbol "^")
+   'core/bit-not          (symbol "~")
+   'core/bit-shift-left   '<<
+   'core/bit-shift-right  '>>
+   'core/bit-shift-right* '>>})
+
+(def js
+  {'core/instance?        'instanceof
+   'core/typeof           'typeof
+   'core/delete-property! 'delete})
+
+(defn get-op [x]
+  (when (and (symbol? x)
+             (= (namespace x) "core"))
+    (or (get math x)
+        (get logic x)
+        (get bits x)
+        (get js x))))
+
+(defn norm-math [op args zero one]
+  (case (count args)
+    0 (or zero (throw (RuntimeException. (str "operator: " op " requires at least one argument"))))
+    1 one
+    [:OPCALL op args]))
+
+(defn cascade [xs]
+  (let [[a b] xs]
+    (when (and a b)
+      (cons (list a b) (cascade (rest xs))))))
+
+(defn norm-logic [op args]
+  (case (count args)
+    0 (throw (RuntimeException. (str "operator: " op " requires at least one argument")))
+    1 [:VAL true]
+    2 [:OPCALL (str op) args]
+    ;else
+    [:OPCALL "&&" (map (fn [[x y]] [:OPCALL op [x y]]) (cascade args))]))
+
+(defn norm-op [op args]
+  (let [op (str op)]
+    (case op
+      "+"   (norm-math op args [:VAL 0] (first args))
+      "*"   (norm-math op args [:VAL 1] (first args))
+      "-"   (norm-math op args nil [:OPCALL "-" [(first args)]])
+      "/"   (norm-math op args nil [:OPCALL "/" [(first args) [:VAL 1]]])
+      "%"   [:OPCALL "%" args]
+      "div" [:OPCALL "~" [:OPCALL "~" (norm-op '/ args)]]
+
+      "<"   (norm-logic op args)
+      ">"   (norm-logic op args)
+      "<="  (norm-logic op args)
+      ">="  (norm-logic op args)
+      "="   (norm-logic op args)  
+
+      [:OPCALL op args])))
+
+(defn norm-call [callee args]
+  (if-let [op (get-op callee)]
+    (norm-op op (norm* args))
+    [:CALL (norm callee) (norm* args)]))
+
 (defn norm-list [[x & [a b c d e :as xs]]]
   (case (keyword x)
     :core/raw         [:RAW a]
@@ -45,18 +129,21 @@
     :core/loop        [:LOOP  [:LABEL a] (norm b)]
     :core/return-from [:RETURN_FROM [:LABEL a] (norm b)]
     
-    :core/fn          [:FN
-                       (when a (norm a))
-                       (when b (norm b))
-                       (norm* c)
-                       (norm d)]
+    :core/fn          (let [[args &rest] (norm-args a)]
+                        [:FN [args nil &rest] (norm b)])
 
+    :core/method      (let [this               (norm a)
+                            [args &rest]       (norm-args b)]
+                        [:FN [args this &rest] (norm c)])
+    
     :core/try         [:TRY (norm a)]
     :core/catch       [:CATCH (norm a) (norm b)]
     :core/finally     [:FINALLY (norm a)]
     
     :core/new         [:NEW (norm a) (norm* (rest xs))]
-                      [:CALL (norm x) (norm* xs)]))
+    
+    ;; else
+    (norm-call x xs)))
 
 (def ^:dynamic *scope* nil)
 
@@ -117,9 +204,9 @@
         n     @(:num-locals scope)]
     (when (> n 0)
       (let [block  (:block scope)
-            locals (for [i (range n)] [:LOCAL (:level scope) n])]
+            locals (for [i (range n)] [:LOCAL (:level scope) i])]
         (reset! block
-                (apply conj [:DECLARE locals] @block))))))
+                (apply conj [[:DECLARE locals]] @block))))))
 
 (defn extend-env [scope]
   (update-in scope [:env] extend-dictionary))
@@ -205,7 +292,10 @@
                          (reset! sentinel (make-local scope)))
                        @sentinel)
           _        (bind label [getter tracer] scope)
-          body     (with-block (serialize body tracer))]
+          body     (with-block (serialize body tracer))
+          body     (if @sentinel
+                     (apply conj [[:SET! @sentinel [:VAL false]]] body)
+                     body)]
       (push [tag label @sentinel body]))))
 
 (defn serialize-return-from
@@ -214,29 +304,36 @@
         [sentinel-getter tracer] (lookup label)]
     (if (< level (:level *scope*))
       (let [sentinel (sentinel-getter)]
-        [:IF sentinel
-         (with-block
-           (serialize expr tracer)
-           (push [:SET! sentinel [:VAL false]])
-           (push [:NON_LOCAL_EXIT]))
-         [[:NON_LOCAL_EXIT_ERROR]]])
+        (push
+         [:IF sentinel
+          (with-block
+            (serialize expr tracer)
+            (push [:SET! sentinel [:VAL false]]))
+          []])
+        (push [:NON_LOCAL_EXIT]))
       (do (serialize expr tracer)
           (push [:BREAK label])))))
 
-(defn serialize-fn
-  [this args pargs body tracer]
+(defn serialize-fn*
+  [[args this &rest] body]
   (with-scope
     (extend-scope *scope*)
-    (let [this   (when this (make-local))
-          args   (when args (make-local))
-          pargs  (rename-args pargs)
+    (when this
+      (let [this (rename-local this)]
+        (push [:SET! this [:THIS]])))
+    (when &rest
+      (let [&rest (rename-local &rest)]
+        (push [:&REST &rest (count args)])))
+    (let [args   (rename-args args)
           return (make-local)]
-      (when this (push [:SET! this [:THIS]]))
-      (when args (push [:SET! args [:ARGUMENTS]]))
-      (serialize-block body (tracer-for return))
+      (serialize body (tracer-for return))
       (push [:RETURN return])
       (finalize-scope)
-      (trace [:FN pargs (:block *scope*)] tracer))))
+      [:FN args @(:block *scope*)])))
+
+(defn serialize-fn
+  [a b t]
+  (maybe-trace (serialize-fn* a b) t))
 
 (defn simplify* [xs]
   (doall (map simplify xs)))
@@ -246,7 +343,6 @@
     :GLOBAL x
     :VAL    x
     :RAW    x
-    :ARG    (lookup x)
     :VAR    (lookup x)
     :SET!   (do (serialize x nil)
                 (simplify a))
@@ -267,7 +363,7 @@
               (push [:IF a b c]))
 
     :SET!   (serialize b (tracer-for a))
-    
+    :FIELD  (maybe-trace [:FIELD (simplify a) (simplify b)] t)
     :BEGIN  (serialize-begin a t)
     :LET    (serialize-let a b t) 
     :LETREC (serialize-letrec a b t)
@@ -277,7 +373,18 @@
     
     :RETURN_FROM (serialize-return-from a b)
 
-    :FN (serialize-fn a b c d t)
+    :FN (serialize-fn a b t)
 
-    :NEW  (trace [:NEW  (simplify a) (simplify* b)] t)
-    :CALL (trace [:CALL (simplify a) (simplify* b)] t)))
+    :NEW    (trace [:NEW  (simplify a) (simplify* b)] t)
+    :CALL   (trace [:CALL (simplify a) (simplify* b)] t)
+    :OPCALL (trace [:OPCALL a (simplify* b)] t)))
+
+(defn compile-toplevel [x]
+  (let [x (norm x)]
+    (with-scope
+      (make-scope)
+      (let [return (make-local)]
+        (serialize x (tracer-for return))
+        (push [:RETURN return])
+        (finalize-scope)
+        [:CALL [:FN [] @(:block *scope*)] []]))))

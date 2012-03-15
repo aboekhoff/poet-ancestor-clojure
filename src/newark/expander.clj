@@ -106,6 +106,8 @@
           (cons 'core/begin (expand-forms env body)))
       (expand-letrec env defs body))))
 
+
+
 (defn expand-symbol [e x]
   (let [den (env/resolve-symbol e x)]    
     (cond
@@ -131,10 +133,15 @@
           body  (expand-body env* body)]
       (list 'core/letrec (map list vars exprs) body))))
 
-;; FIXME decide on syntax for rest args
-
 (defn expand-args [env args]
-  ())
+  (let [[pargs &rest] (split-with #(not= % '.) args)
+        &rest         (second &rest)
+        pargs         (doall (map #(env/bind-symbol env %) pargs))
+        pargs         (or pargs '())]    
+    (if &rest
+      (let [&rest (env/bind-symbol env &rest)]
+        (concat pargs (list '. &rest)))
+      pargs)))
 
 (defn expand-function [env args body]
   (let [env   (env/extend-env env)
@@ -144,7 +151,7 @@
 
 (defn expand-method [env this args body]
   (let [env  (env/extend-env env)
-        this (env/bind-symbol this)
+        this (env/bind-symbol env this)
         args (expand-args env args)
         body (expand-body env body)]
     (list 'core/method (cons this args))))
@@ -253,41 +260,44 @@
       ;; else
       (expand-call env head tail))))
 
-(defn expand-top-level [e xs]
+(defn expand-toplevel* [e xs]
   (when-let [[x & xs] (seq xs)]
     (let [x (macroexpand e x)]
       (lazy-seq
        (cond
         (begin? e x)
-        (expand-top-level e (concat (rest x) xs))
+        (expand-toplevel* e (concat (rest x) xs))
 
         (macro-definition? e x)
         (do (env/bind-macro e
                             (second x)
                             (syntax/make-syntax e (drop 2 x))) 
-            (expand-top-level e xs))
+            (expand-toplevel* e xs))
 
         (symbol-macro-definition? e x)
         (do (env/bind-macro e
                             (second x)
                             (syntax/make-symbol-syntax e (nth x 2)))
-            (expand-top-level e xs))
+            (expand-toplevel* e xs))
 
         (definition? e x)
         (let [v  (env/bind-global e (second x))
               x* (expand-form e (nth x 2))]
           (cons (list 'core/set! v x*)
-                (expand-top-level e xs)))        
+                (expand-toplevel* e xs)))        
         
         :else
         (cons (expand-form e x)
-              (expand-top-level e xs)))))))
+              (expand-toplevel* e xs)))))))
+
+(defn expand-toplevel [e xs]
+  (cons 'core/begin (expand-toplevel* e xs)))
 
 (def test-module (env/find-or-create-module 'test))
 (env/import! test-module (env/find-or-create-module 'core))
 
 (defmacro ex [& sexps]
-  `(expand-top-level test-module (quote ~sexps)))
+  `(expand-toplevel test-module (quote ~sexps)))
 
 (comment
   (defn expand-opcall [[_ type op] args]

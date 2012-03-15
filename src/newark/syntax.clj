@@ -4,6 +4,11 @@
 (def dots (symbol "..."))
 (defn dots? [x] (= x dots))
 
+(defn quoted-dots? [x]
+  (and (seq? x)
+       (= 2 (count x))
+       (every? dots? x)))
+
 (defn shortest-branch [m]
   (if-let [ns (seq (map (comp count val) m))]
     (apply min ns)
@@ -95,9 +100,10 @@
                    [:GET x*]
                    [:PUT x]))
    
-   (seq? x)    (if (empty? x)
-                 [:PUT x]
-                 [:SEQ (compile-template* x ids)])
+   (seq? x)    (cond
+                (empty? x)       [:PUT x]
+                (quoted-dots? x) [:PUT (first x)]
+                :else            [:SEQ (compile-template* x ids)])
    
    (vector? x) (if (empty? x)
                  [:PUT x]

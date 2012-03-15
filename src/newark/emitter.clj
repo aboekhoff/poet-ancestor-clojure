@@ -70,16 +70,16 @@
     (emit t) (SC) (NL)))
 
 (defn global [x y]
-  (str constants/USER "['" x "$" y "']"))
+  (str constants/NEWARK "['" x "::" y "']"))
 
 (defn label [x y]
   (str "label_" x "_" y))
 
 (defn local [x y]
-  (str "L" x "_" y))
+  (str "x_" x "_" y))
 
 (defn arg [x y]
-  (str "A" x "_" y))
+  (str "a_" x "_" y))
 
 (defn emit-label [[_ x y]]
   (write! (str (label x y) ":")))
@@ -90,8 +90,11 @@
 (defn if-token? [t] (= :IF (first t)))
 
 (defn emit-if [test then else]
-  (write! "if ")
-  (in-parens (emit test))
+  (write! "if (")
+  (emit test)
+  (write! " == null || ")
+  (emit test)
+  (write! " === false)")
   (SP)
   (emit-body then)
   (when (seq else)
@@ -125,55 +128,72 @@
     (write! " finally ")
     (emit-body f)))
 
-(defn emit-slice [to from offset idx len]
-  (write! "for(;")  
-  (emit idx)
-  (write! "<")
-  (emit len)
-  (write! ";")
-  (emit idx)
-  (write! "++) { ")
-  (emit to)
-  (write! "[")
-  (emit idx)
-  (write! (str "-" offset))
-  (write! "]=")
-  (emit from)
-  (write! "[")
-  (emit idx)
-  (write! "]; }"))
+(defn emit-&rest [target offset]
+  (let [[_ x y] target
+        target  (local x y)]
+    (write! (str target " = [];"))
+    (NL) (TAB)
+    (write! (str target".length = arguments.length-"offset";"))
+    (NL) (TAB)
+    (write!
+     (str "for (var i = "offset", ii = arguments.length; i<ii; i++) { "))
+    (indent!)
+    (NL) (TAB)
+    (write! (str target "[i-"offset"] = arguments[i];"))
+    (unindent!)
+    (NL) (TAB)
+    (write! "}")))
+
+(defn emit-labeled-block [loop? label sentinel body]
+  (when sentinel
+    (write! "try {")
+    (indent!) (NL) (TAB))
+
+  (emit label)
+  (write! ":")
+  (when loop? (write! "for (;;) "))
+  (emit-body body)
+
+  (when sentinel
+    (unindent!) (NL) (TAB)
+    (write! "} catch (e) {")
+    (indent!) (NL) (TAB)
+    (write! "if (")
+    (emit sentinel)
+    (write! ") { throw e; } ")
+    (unindent!) (NL) (TAB)
+    (write! "} finally {")
+    (indent!) (NL) (TAB)
+    (emit sentinel)
+    (write! " = false;")
+    (unindent!)
+    (NL) (TAB)
+    (write! "}")))
 
 (defn emit [[tag a b c d e :as token]]
   (case tag
-    :CONSTANT (emit-literal a)
+    :VAL      (emit-literal a)
     :RAW      (write! a)
     :REGEX    (do (write! "/") (emit a) (write! "/"))
     :ARRAY    (in-brackets (commas a))
-    :PROJECT  (do (emit a) (in-brackets (emit b)))
+    :FIELD    (do (emit a) (in-brackets (emit b)))
     :CALL     (do (emit a) (comma-list b))
-    :BLOCK    (do (emit-label a)
-                  (emit-body b))
-    :LOOP     (do (emit-label a)
-                  (write! "for(;;)")
-                  (emit-body b))
+    :NEW      (do (write! "new ") (emit a) (comma-list b))
+    :BLOCK    (emit-labeled-block false a b c)
+    :LOOP     (emit-labeled-block true a b c)
     :FN       (in-parens
                (write! "function ")
                (comma-list a)
                (SP)
                (emit-body b))
-    :WHILE    (do (write! "while ")
-                  (in-parens (emit a))
-                  (SP)
-                  (emit-body b))
     :IF       (emit-if a b c)
-    :SET      (do (emit a) (write! " = ") (emit b))
+    :SET!     (do (emit a) (write! " = ") (emit b))
     :OPCALL   (emit-operator a b) 
     :BREAK    (emit-break a)
     :RETURN   (do (write! "return ") (emit a))
     :DECLARE  (when (seq a)
                 (write! "var ")
                 (commas a))
-    :NEW      (do (write! "new ") (emit a))
     :TRY      (emit-try-catch a b c)
     :TRY*     (emit-try-catch a b c d)
     :THROW    (do (write! "throw ")
@@ -181,6 +201,10 @@
     :COMMENT  (do (write! "\n/* ")
                   (write! a)
                   (write! " */\n"))
+
+    :NON_LOCAL_EXIT
+    (do (write! "throw new Error('NON_LOCAL_EXIT')"))
+    
     :FOR_EACH_PROPERTY
     (do (write! "for ")
         (in-parens (emit a) (write! " in ") (emit b))
@@ -189,6 +213,9 @@
 
     :ARG
     (write! (arg a b))
+
+    :LABEL
+    (write! (label a b))
     
     :LOCAL
     (write! (local a b))
@@ -196,14 +223,17 @@
     :GLOBAL
     (write! (global a b))
 
-    :SLICE
-    (emit-slice a b c d e)))
+    :&REST
+    (emit-&rest a b)))
 
 (defn emit-tokens [tokens]
   (clear!)
   (reset-depth!)
   (doseq [t tokens] (emit t))
   (str accumulator))
+
+(defn emit-token [token]
+  (emit-tokens [token]))
 
 (defn emit-tokens* [tokens]
   (clear!)

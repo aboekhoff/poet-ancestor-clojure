@@ -13,36 +13,32 @@
 
 (use 'clojure.pprint)
 
-(defn compile-sexp [sexp & [env]]
-  (let [env  (or env (env/make-standard-environment "USER"))
-        ast  (expander/expand-body env sexp)
-        ; _    (pp/pprint ast)
-        ast* (compiler/compile-expansion env ast)
-        ; _    (pp/pprint ast*)
-        js   (emitter/emit-tokens* ast*)
-        js*  (emitter/wrap-toplevel js)]
-    js*))
+(defmacro ex [& forms]
+  `(println (compile-toplevel (quote ~forms))))
+
+(defn compile-toplevel [sexp & [env]]
+  (let [env       (or env env/core)
+        expansion (expander/expand-toplevel env sexp)
+        ir        (compiler/compile-toplevel expansion)
+        js        (emitter/emit-token ir)]
+    (str "//BEGIN TOPLEVEL\n(function() {\n\n"
+         constants/PRELUDE
+         "\n"
+         js
+         "\n\n//END TOPLEVEL\n})();")))
 
 (defn compile-string [string]
   (let [sexp (reader/read-all-forms (reader/string->input-port string))]
-    (compile-sexp sexp)))
+    (compile-toplevel sexp)))
 
 (defn compile-file [file-descriptor]
   (let [sexp (reader/read-file file-descriptor)]
-    (compile-sexp sexp)))
+    (compile-toplevel sexp)))
 
 (defn compile-and-write-file [file-descriptor]
   (let [out (str/replace file-descriptor ".newark" ".js")
         js  (compile-file file-descriptor)]
     (spit out js)))
-
-(defn compile-core! []
-  (let [src  (slurp (io/resource "core.newark"))
-        port (reader/string->input-port src "newark-core")
-        sexp (reader/read-all-forms port)
-        env  (env/make-standard-environment "newark-core" true)]    
-    (println (compile-sexp sexp env))
-    (reset! constants/CORE env)))
 
 (def watched (atom {}))
 (def watchdir (atom nil))
@@ -91,7 +87,6 @@
 
 (defn -main [& args]
   (println "NEWARK COMPILER WARMING UP")
-  (compile-core!)  
   (if (or (= (first args) "-w")
           (= (first args) "-watch"))
     (start-watcher!)
