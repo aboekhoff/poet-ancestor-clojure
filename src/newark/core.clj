@@ -19,7 +19,12 @@
 (defn compile-toplevel [sexp & [env]]
   (let [env       (or env env/core)
         expansion (expander/expand-toplevel env sexp)
+        ;_         (println "EXPANSION:")
+        ;_         (pprint expansion)       
         ir        (compiler/compile-toplevel expansion)
+        ;_         (println "IR:")
+        ;_         (pprint ir)
+        ;_         (prn)
         js        (emitter/emit-token ir)]
     (str "//BEGIN TOPLEVEL\n(function() {\n\n"
          constants/PRELUDE

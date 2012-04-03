@@ -56,6 +56,11 @@
 (defn terminal? [x]
   (or (nil? x) (@macros x)))
 
+(def constituents #{\#})
+
+(defn not-constituent? [x]
+  (and (terminal? x) (not (constituents x))))
+
 (defn get-position [port]
   (select-keys @port [:origin :offset :line :column]))
 
@@ -179,20 +184,27 @@
      (parse-symbol s p))))
 
 (defn parse-symbol [s p]
-  (if (re-matches #"[^\.]+(\.[^\.]+)+" s)
-    (let [[root & fields] (str/split s #"\.")]
-      (loop [root   (with-meta (symbol nil root) {:source-position p})
-             fields fields]
-        (if (empty? fields)
-          root
-          (recur
-           (list (base-symbol ".") root (first fields))
-           (rest fields)))))
-    (with-meta (symbol nil s) {:source-position p})))
+  (cond
+   (re-matches #"[^\.]+(\.[^\.]+)+" s)
+   (let [[root & fields] (str/split s #"\.")]
+     (loop [root   (with-meta (symbol nil root) {:source-position p})
+            fields fields]
+       (if (empty? fields)
+         root
+         (recur
+          (list (base-symbol ".") root (first fields))
+          (rest fields)))))
+
+   (re-matches #"[^:]+::[^:]+" s)
+   (let [[package name] (str/split s #"::")]
+     (with-meta (symbol package name) {:source-position p}))
+   
+   :else
+   (with-meta (symbol nil s) {:source-position p})))
 
 (defn read-atom [port]
   (let [position (get-position port)
-        string   (read-until terminal? port)]
+        string   (read-until not-constituent? port)]
     (parse-atom string position)))
 
 (defn read-form [port]
@@ -202,6 +214,26 @@
      (nil? c)    ::EOF
      (@macros c) ((@macros c) port)
      :else       (read-atom port))))
+
+(defn read-quasiquote [port]
+  (let [pos  (get-position port)
+        _    (read-char port)
+        form (read-form port)]
+    (with-meta
+      (list (base-symbol "quasiquote") form)
+      {:source-position pos})))
+
+(defn read-unquote [port]
+  (let [pos (get-position port)
+        _   (read-char port)
+        sym (if (= (peek-char port) "@")
+              (do (read-char port)
+                  (base-symbol "unquote-splicing"))
+              (base-symbol "unquote"))
+        form (read-form port)]
+    (with-meta
+      (list sym form)
+      {:source-position pos})))
 
 (defn read-all-forms [port] 
   (loop [forms []]
@@ -244,6 +276,9 @@
 
 (set-reader-macro \( read-list)
 (set-reader-macro \[ read-vector)
+
+(set-reader-macro \, read-unquote)
+(set-reader-macro \` read-quasiquote)
 
 (set-reader-macro \) (mismatched-delimiter \]))
 (set-reader-macro \] (mismatched-delimiter \]))

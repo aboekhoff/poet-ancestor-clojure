@@ -1,5 +1,8 @@
 (ns newark.util)
 
+(defn name* [x]
+  (if (keyword? x) (name x) (str x)))
+
 (defn make-generator
   ([] (make-generator 0))
   ([seed]

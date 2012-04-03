@@ -101,9 +101,22 @@
                    [:PUT x]))
    
    (seq? x)    (cond
-                (empty? x)       [:PUT x]
-                (quoted-dots? x) [:PUT (first x)]
-                :else            [:SEQ (compile-template* x ids)])
+                (empty? x)
+                [:PUT x]
+                
+                (quoted-dots? x)
+                [:PUT (first x)]
+
+                (= :identifier->string (first x))
+                (let [sym (second x)]
+                  (do (assert (symbol? sym))
+                      (let [x* (symbol->key sym)]
+                        (if (get ids x*)
+                          [:NAME x*]
+                          [:PUT (str sym)]))))
+                
+                :else
+                [:SEQ (compile-template* x ids)])
    
    (vector? x) (if (empty? x)
                  [:PUT x]
@@ -129,8 +142,9 @@
 
 (defn expand-template [[tag content targets] data]
   (case tag
-    :PUT content
-    :GET (get data content)
+    :PUT  content
+    :GET  (get data content)
+    :NAME (let [x (get data content)] (name x))
     :SEQ (mapcat #(expand-template* % data) content)
     :VEC (vec (mapcat #(expand-template* % data) content))))
 
@@ -166,7 +180,7 @@
     (let [position (-> input meta :position)]
       (throw (RuntimeException.
               (apply str
-                     "syntax error on input: " (str input) "\n"
+                     "syntax error on input: " (pr-str input) "\n"
                      (when position (str position "\n"))
                      "no match found among patterns:\n"
                      (interpose "\n" pats)))))))

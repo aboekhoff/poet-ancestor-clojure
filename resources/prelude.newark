@@ -1,0 +1,644 @@
+(define* *debug* #t)
+
+(define-syntax assert
+  ((assert expression)
+   (when *debug*
+     (when (not expression)
+       (throw (js.Error (+ "assert failed: "
+                           (pr-str (quote expression))))))))
+  ((assert expression message)
+   (when *debug*
+     (when (not expression)
+       (throw (js.Error message))))))
+
+(define-syntax cond
+  ((cond) #nil)
+  ((cond (test body ...) more ...)
+   (if test (begin body ...) (cond more ...))))
+
+(define-syntax case* 
+  ((case* _)
+   (throw js.Error
+     ("no case matched and no :else clause provided")))
+
+  ((case* _ (:else body ...))
+   (begin body ...))
+
+  ((case* val (test body ...) more ...)
+   (if (= val test)
+       (begin body ...)
+       (case* val more ...))))
+
+(define-syntax case
+  ((case expr clauses ...)
+   (let ((val expr)) 
+     (case* val clauses ...))))
+
+(define-syntax or
+  ((or) #f)
+  ((or x) x)
+  ((or x xs ...) (let ((x* x)) (if x* x* (or xs ...)))))
+
+(define-syntax and
+  ((and) #t)
+  ((and x) x)
+  ((and x xs ...) (let ((x* x)) (if x* (and xs ...) x*))))
+
+(define-syntax when 
+  ((when test body ...) 
+   (if test (begin body ...) #nil)))
+
+(define-syntax unless
+  ((unless test body ...)
+   (if test #nil (begin body ...))))
+
+(define-syntax ->
+  ((-> x)            x)
+  ((-> x (y ys ...)) (y x ys ...))
+  ((-> x y)          (y x))
+  ((-> x y zs ...)   (-> (-> x y) zs ...)))
+
+(define-syntax ->>
+  ((->> x)            x)
+  ((->> x (y ys ...)) (y ys ... x))
+  ((->> x y)          (y x))
+  ((->> x y zs ...)   (->> (->> x y) zs ...)))
+
+(define-syntax doto*
+  ((doto* obj) obj)
+  ((doto* obj expr exprs ...)
+   (begin (-> obj expr) (doto* obj exprs ...))))
+
+(define-syntax doto
+  ((doto expr exprs ...)
+   (let ((obj expr))
+     (doto* obj exprs ...))))
+
+(define-syntax define
+  ((define (name args ...) body ...)
+   (begin
+     (define* name (fn (args ...) (block name body ...)))
+     (set! (. name ":name") (:identifier->string name))))
+  
+  ((define name expression)
+   (define* name expression)))
+
+(define-syntax define-method
+  ((define-method (name this args ...) body ...)
+   (begin
+     (define* name
+       (method (this args ...) (block name body ...)))
+     (set! (. name ":name") (:identifier->string name)))))
+
+(define-syntax define-type
+  ((define-type name (field ...) init ...)
+   (begin
+     (define* name
+       (method (this field ...)
+               (if (instanceof this name)
+                   (begin
+                     (set! (. this (:identifier->string field)) field) ...
+                     init ...
+                     this)
+                   (new name field ...))))
+     (set! (. name ":name") (:identifier->string name)))))
+
+(define-syntax loop
+  ((loop body ...)
+   (loop* #nil body ...)))
+
+(define-syntax return
+  ((return)   (return-from #nil #nil))
+  ((return x) (return-from #nil x)))
+
+(define-syntax let*
+  ((let* () body ...)
+   (let () body ...))
+
+  ((let* ((var val) more ...) body ...)
+   (let ((var val))
+     (let* (more ...) body ...))))
+
+(define-syntax inc!
+  ((inc! x) (set! x (+ x 1))))
+
+(define-syntax dec!
+  ((dec! x) (set! x (- x 1))))
+
+(define-syntax do-array
+  ((do-array (elt array) body ...)
+   (do-array (elt _ array 0) body ...))
+
+  ((do-array (elt idx array) body ...)
+   (do-array (elt idx array 0) body ...))
+  
+  ((do-array (elt idx array offset) body ...)   
+   (let* ((idx offset)
+          (array* array)
+          (len (. array* "length")))     
+     
+     (loop
+      (if (< idx len)
+          (let ((elt (. array* idx)))
+            (begin body ...)
+            (inc! idx))
+          (return))))))
+
+(define-syntax do-list
+  ((do-list (elt list) body ...)
+   (let ((list* list))
+     (loop
+      (when (= list*.size 0)
+        (return))
+      (let ((elt list*.head))
+        body ...
+        (set! list* list*.tail))))))
+
+(define-syntax do-times
+  ((do-times (var num) body ...)
+   (begin
+     (let ((var* 0)
+           (num* num))
+       (loop
+        (when (>= var* num*) (return))
+        (let ((var var*))
+          (begin body ...))
+        (inc! var*))))))
+
+(define (+ . xs)
+  (case xs.length
+    (0 0)
+    (1 xs.0)
+    (:else
+     (let ((r (+ xs.0 xs.1)))
+       (do-array (i x xs 2)
+                 (set! r (+ r x)))
+       r))))
+
+(define (* . xs)
+  (case xs.length
+    (0 1)
+    (1 xs.0)
+    (:else
+     (let ((r (* xs.0 xs.1)))
+       (do-array (x _ xs 2)
+                 (set! r (* r x)))
+       r))))
+
+(define (- . xs)
+  (case xs.length
+    (0 (throw (js.Error "core::- requires at least one argument")))
+    (1 (- xs.0))
+    (:else
+     (let ((r (* xs.0 xs.1)))
+       (do-array (x _ xs 2)
+                 (set! r (- r x)))
+       r))))
+
+(define (/ . xs)
+  (case xs.length
+    (0 (throw (js.Error "core::/ requires at least one argument")))
+    (1 (/ 1 xs.0))
+    (:else
+     (let ((r (* xs.0 xs.1)))
+       (do-array (x _ xs 2)
+                 (set! r (/ r x)))
+       r))))
+
+(define (mod x y) (mod x y))
+
+(define (not x) (if x #f #t))
+(define (fn? x) (= (typeof x) "function"))
+(define (undefined? x) (= (typeof x) "undefined"))
+(define (defined? x) (not (undefined? x)))
+
+(define nil-vtable (js.Object))
+
+(define next-generic-id
+  (let ((id 0))
+    (fn () (inc! id) (+ "GFN#" id))))
+
+(define-syntax define-generic
+  ((define-generic name (arg0 args ...))
+   (define-generic name (arg0 args ...) arg0))
+  
+  ((define-generic name (args ...) dispatch-arg)
+   (define name
+     (let ()
+       (define generic-id (+ (next-generic-id) ":" (:identifier->string name)))
+       (define (name args ...)
+         (define vtable
+           (if (nil? dispatch-arg)
+               nil-vtable
+               dispatch-arg))
+         (define implementation
+           (or (. vtable generic-id)
+               (. name ":default")))
+         (implementation args ...))
+       (set! (. name ":generic-id") generic-id)
+       name))))
+
+(define (extend-generic* gfn type impl)
+  (define vtable
+    (cond
+     ((nil? type) nil-vtable)
+     ((fn? type)  type.prototype)
+     (#t          type)))
+  (set! (. vtable (. gfn ":generic-id")) impl))
+
+(define-syntax extend-generic
+  ((extend-generic gfn (:default impl))
+   (set! (. gfn ":default") impl))
+  ((extend-generic gfn (type impl))
+   (extend-generic* gfn type impl))
+  ((extend-generic gfn (type impl) more ...)
+   (begin (extend-generic gfn (type impl))
+          (extend-generic gfn more ...))))
+
+(define-generic traverse (f xs) xs)
+
+(extend-generic traverse
+  (js.Array  (fn (f xs) (do-array (x xs) (f x))))
+  (js.String (fn (f xs) (do-array (x xs) (f x)))))
+
+(define (get-name x)
+  (when x (or (. x "name") (. x ":name"))))
+
+(define (pr . xs)
+  (represent-array xs *out* #t))
+
+(define (prn . xs)
+  (represent-array xs *out* #t)
+  (*out* "\n"))
+
+(define (print . xs)
+  (represent-array xs *out* #f))
+
+(define (println . xs)
+  (represent-array xs *out* #f)
+  (*out* "\n"))
+
+(define *out*
+  (cond
+   ((defined? js.process)
+    (fn (x) (js.process.stdout.write x)))
+   ((defined? js.console)
+    (fn (x) (js.console.log x)))
+   (#t (fn () #nil))))
+
+(define-syntax fluid-let
+  ((fluid-let () body ...)
+   (let () body ...))
+
+  ((fluid-let ((x y) more ...) body ...)
+   (let ((old-x x))     
+     (unwind-protect
+      (:try
+       (set! x y)
+       (fluid-let (more ...) body ...))
+      (:finally
+       (set! x old-x))))))
+
+(define (call-with-output-port port thunk)
+  (fluid-let ((*out* port)) (thunk)))
+
+(define (pr-str . xs)
+  (let* ((buf [])
+         (port (fn (x) (buf.push x))))
+    (call-with-output-port
+     port
+     (fn () (pr.apply #nil xs)))
+    (buf.join "")))
+
+(define (print-str . xs)
+  (let* ((buf [])
+         (port (fn (x) (buf.push x))))
+    (call-with-output-port
+     port
+     (fn () (print.apply #nil xs)))
+    (buf.join "")))
+
+(define *keyword-interns* (js.Object))
+
+(define-type List (head tail size))
+(define-type Keyword (name))
+(define-type Symbol (name))
+(define-type QualifiedSymbol (package name))
+(define-type TaggedSymbol (child tag))
+
+(define (keyword? x)
+  (instanceof x Keyword))
+
+(define (symbol? x)
+  (or (instanceof x Symbol)
+      (instanceof x QualifiedSymbol)
+      (instanceof x TaggedSymbol)))
+
+(define (qualified-symbol? x)
+  (instanceof x QualifiedSymbol))
+
+(define (tagged-symbol? x)
+  (instanceof x TaggedSymbol))
+
+(define (list? x)
+  (instanceof x List))
+
+(define array?
+  (or js.Array.isArray
+      (fn (x) (instanceof x js.Array))))
+
+(define (string? x)
+  (= (typeof x) "string"))
+
+(define (number? x)
+  (= (typeof x) "number"))
+
+(define (boolean? x)
+  (= (typeof x) "boolean"))
+
+(define (fn? x)
+  (= (typeof x) "function"))
+
+(define (make-keyword name)
+  (let ((key (+ ":" name)))
+    (or (. *keyword-interns* key)
+        (let ((kwd (new Keyword name)))
+          (set! (. *keyword-interns* key) kwd)
+          kwd))))
+
+(define (get-typename x)
+  (let* ((constructor x.constructor)
+         (name (when constructor (or constructor.:name constructor.name)))
+         (name (or name "Object")))
+    name))
+
+(define (represent-properties x p e)
+  (do-properties* #nil (k x)
+    (when (.hasOwnProperty x k)
+          (p " [")
+          (p (js.JSON.stringify k))
+          (p " ")
+          (represent (. x k) p e ?)
+          (p "]"))))
+
+(define (represent-object x p e)
+  (p "#<")
+  (p (get-typename x))
+  (represent-properties x p e)
+  (p ">"))
+
+(define (represent-array xs p e)
+  (let ((many? #f))
+    (do-array (x xs)           
+      (if many? (p " ") (set! many? #t))
+      (represent x p e))))
+
+(define-generic represent (x p e))
+
+(extend-generic represent
+  (:default represent-object)
+                
+  (#nil (fn (x p e) (p "#nil")))
+                
+  (js.Boolean
+   (fn (x p e)
+       (if x (p "#t") (p "#f"))))
+  
+  (js.String
+   (fn (x p e)
+       (p (if e (js.JSON.stringify x) x))))
+  
+  (js.Number
+   (fn (x p e)
+       (if (not (= x x))
+           (p "#NaN")
+           (p (+ "" x)))))
+  
+  (js.Array
+   (fn (x p e)
+       (p "[")
+       (represent-array x p e)
+       (p "]")))
+  
+  (js.Function
+   (fn (x p e)
+       (let ((name (get-name x)))
+         (p (if name (+ "<fn:" name ">") "<fn>")))))
+
+  (Symbol
+   (fn (x p e)
+       (p x.name)))
+
+  (QualifiedSymbol
+   (fn (x p e)
+       (p (+ x.package "::" x.name))))
+
+  (TaggedSymbol
+   (fn (x p e)
+       (p (symbol->key x))))
+
+  (Keyword
+   (fn (x p e)
+       (p (+ ":" x.name))))
+  
+  (List
+   (fn (x p e)
+       (p "(")
+       (represent-array (list->array x) p e)
+       (p ")"))))
+
+(define (array->list array)
+  (let ((ls (new List #nil #nil 0))
+        (len 0)
+        (idx array.length))
+    (loop
+     (if (= idx 0)
+         (return ls)
+         (begin
+           (dec! idx)
+           (inc! len)
+           (set! ls (new List (. array idx) ls len)))))))
+
+(define (list->array ls)
+  (let ((array [])
+        (size ls.size)
+        (idx 0))
+    (set! array.length size)
+    (do-list (x ls)
+      (set! (. array idx) x)
+      (inc! idx))
+    array))
+
+(define-generic to-array (x))
+(extend-generic to-array
+  (js.Array  (fn (x) x))
+  (js.String (fn (x) (js.Array.prototype.slice.call x)))
+  (List      list->array))
+
+(define-generic from-array (type array))
+(extend-generic from-array
+  (js.Array  (fn (_ x) (x.slice)))
+  (js.String (fn (_ x) (x.join "")))
+  (List      (fn (_ x) (array->list x))))
+
+(define-generic len (x))
+(extend-generic len
+  (js.Array  (fn (x) x.length))
+  (js.String (fn (x) x.length))
+  (List      (fn (x) x.size)))
+
+(define (reverse-array xs)
+  (let ((l xs.length)
+        (r []))
+    (set! r.length l)
+    (do-times
+     (i l)
+     (set! (. r i) (. xs (- l i 1))))
+    r))
+
+(define-generic reverse (x))
+(extend-generic reverse
+  (js.Array reverse-array)
+  (js.String (fn (xs) (.join (reverse-array xs) "")))
+  (List
+   (fn (xs)
+       (let ((r (list)))
+         (do-list (x xs)
+           (set! r (cons x r)))
+         r))))
+
+(define-generic empty? (x))
+(extend-generic empty?
+  (#nil      (fn (_) #t))
+  (js.Array  (fn (x) (= x.length 0)))
+  (js.String (fn (x) (= x.length 0)))
+  (List      (fn (x) (= x.size 0))))
+
+(define-generic rest (x))
+(extend-generic rest
+  (js.Array  (fn (x) (.slice x 1)))
+  (js.String (fn (x) (.substring x 1)))
+  (List      (fn (x) (if (= x.size 0) x x.tail)))
+  (:default  (fn (x) (drop 1 x))))
+
+(define-generic first (x))
+(extend-generic first
+  (js.Array  (fn (x) (. x 0)))
+  (js.String (fn (x) (. x 0)))
+  (List      (fn (x) x.head))
+  (:default  (fn (x) (. (to-array x) 0))))
+
+(define-generic nth (xs i))
+(extend-generic nth
+  (js.Array
+   (fn (xs i)
+       (. xs (- i 1))))
+  
+  (js.String
+   (fn (xs i)
+       (. xs (- i 1))))
+  
+  (List
+   (fn (xs i)
+       (when (<= i xs.size)
+             (block nth 
+               (let ((j 1))                      
+                 (do-list (x xs)
+                          (if (= j i)
+                              (return-from nth x)
+                              (inc! j))))))))
+  
+  (:default
+   (fn (x i)
+       (. (to-array x) (- i 1)))))
+
+(define (second x)
+  (nth x 2))
+
+(define (third x)
+  (nth x 3))
+
+(define (fourth x)
+  (nth x 4))
+
+(define (fifth x)
+  (nth x 5))
+
+(define (sixth x)
+  (nth x 6))
+
+(define (seventh x)
+  (nth x 7))
+
+(define (eighth x)
+  (nth x 8))
+
+(define (ninth x)
+  (nth x 9))
+
+(define (map func coll)
+  (define tmp (to-array coll))
+  (define res [])
+  (set! res.length tmp.length)
+  (do-array (x i tmp)
+    (set! (. res i) (func x)))
+  (from-array coll res))
+
+(define (apply f . xs)
+  (let ((n xs.length))    
+    (case n
+      (0 (f))
+      (1 (.apply f #nil (to-array xs.0)))
+      (:else
+       (let ((args (to-array (. xs (- n 1)))))
+         (do-times (i (- n 1))
+          (.unshift args (. xs (- n i 2))))
+         (.apply f #nil args))))))
+
+(define (map* func . colls)  
+  (define num-results #f)
+  (define num-colls   colls.length)
+  (define arglists    [])
+  (define result      [])
+  (define colls*      [])
+  (set! colls*.length num-colls)
+ 
+  (do-array (x i colls)
+    (let* ((x (to-array x))
+           (n x.length))
+      (when (or (not num-results) (< n num-results))
+        (set! num-results n))
+      (set! (. colls* i) x)))
+ 
+  (set! result.length num-results)
+
+  (do-times (i num-results)
+    (let ((arglist []))
+      (do-array (c colls*)
+        (.push arglist (. c i)))
+      (set! (. result i) (.apply func #nil arglist))))
+
+  (from-array (first colls) result))
+
+(define (filter pred coll)
+  (define tmp (to-array coll))
+  (define res [])
+  (define idx 0)
+  (do-array (x tmp)
+    (when (pred x)
+      (set! (. res idx) x)
+      (inc! idx)))
+  (from-array coll res))
+
+(define (take n coll)
+  (let ((tmp (to-array coll)))
+    (from-array coll (tmp.slice 0 n))))
+
+(define (drop n coll)
+  (let ((tmp (to-array coll)))
+    (from-array coll (tmp.slice n))))
+
+(define (list . xs) (array->list xs))
+
+(define (cons x xs)
+  (assert (list? xs))

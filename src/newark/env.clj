@@ -4,7 +4,10 @@
             [newark.constants :as constants]
             [newark.util :as util]))
 
-(declare make-env)
+(declare make-env import! core)
+
+(defn load-package [id]
+  (throw (RuntimeException. "load-package not configured")))
 
 (def next-env-id (util/make-generator))
 (def tag-db (atom {}))
@@ -83,9 +86,16 @@
    x))
 
 (defn make-env [module & [symbols]]
-  {:module  module
-   :symbols (or symbols (util/make-dictionary))
-   :id      (next-env-id)})
+  {:module            module
+   :symbols           (or symbols (util/make-dictionary))
+   :id                (next-env-id)   
+   :imported-packages (atom #{})
+   :imported-symbols  (atom #{})})
+
+(defn make-standard-env [id]
+  (let [e (make-env (util/name* id))]
+    (import! e core)
+    e))
 
 (defn extend-env [env]
   (assoc env
@@ -132,7 +142,9 @@
 
 (def core (find-or-create-module "core"))
 
-(doseq [x ["define"
+(doseq [x ["import"
+           "include"
+           "define*"
            "define-syntax"
            "define-symbol-syntax"
            "let-syntax"
@@ -145,94 +157,30 @@
            "fn"
            "method"
            "block"
-           "loop"
+           "loop*"
            "return-from"
            "begin"
            "throw"
+           "unwind-protect"
+           "do-properties*"
+           "quasiquote"
+           "unquote"
+           "unquote-splicing"
            "raw"
            "quote"
            "js"
            "newark"
-
-           "+" "*" "-" "/"
-           "<" ">" "<=" ">="
-
+           "new"
+           
+           "has-property?"
            "instanceof"
-           "typeof"]]
+           "typeof"
+           "delete-property!"]]
   (bind-global core (symbol x)))
 
 (defn import! [e1 e2 & [pred]]
   (let [pred (or pred (constantly true))]
     (doseq [[k v] @(first (:symbols e2))]
-      (util/dictionary-set* (:symbols e1) k v))))
+      (util/dictionary-set* (:symbols e1) k v)
+      (swap! (:imported-symbols e1) conj k))))
 
-(comment 
-  (def standard-symbols*
-    {"#define"               :DEFINE
-     "#define-syntax"        :DEFINE_SYNTAX
-     "#define-symbol-syntax" :DEFINE_SYMBOL_SYNTAX
-     "#let-syntax"           :LET_SYNTAX  
-     "#let-symbol-syntax"    :LET_SYMBOL_SYNTAX
-     "#if"                   :IF
-     "#set!"                 :SET
-     "#let"                  :LET
-     "#."                    :PROJECT
-     "#fn*"                  :FN
-     "#block*"               :BLOCK
-     "#loop*"                :LOOP
-     "#return-from"          :RETURN_FROM
-     "#do"                   :BEGIN
-     "#new"                  :NEW
-     "#do-properties"        :FOR_EACH_PROPERTY
-     "#throw"                :THROW
-     "#raw"                  :RAW
-     "#include"              :INCLUDE
-     "#quote"                :QUOTE
-     "#js"                   [:RAW constants/GLOBAL]
-     "#newark"               [:RAW constants/NEWARK]
-     
-     "#+" [:OP :FOLD "+"]
-     "#-" [:OP :FOLD "-"]
-     "#*" [:OP :FOLD "*"]
-     "#/" [:OP :FOLD "/"]
-
-     "#bit-shift-left"   [:OP :FOLD "<<"]
-     "#bit-shift-right"  [:OP :FOLD ">>"]
-     "#bit-shift-right*" [:OP :FOLD ">>>"]
-     "#bit-and"          [:OP :FOLD "&"]
-     "#bit-or"           [:OP :FOLD "|"]
-     "#bit-xor"          [:OP :FOLD "^"]
-     
-     "#bit-not"    [:OP :UNARY "~"]   
-     "#!"          [:OP :UNARY "!"]
-     "#typeof"     [:OP :UNARY "typeof"]
-     "#instanceof" [:OP :BINARY "instanceof"]
-
-     "#mod" [:OP :BINARY "%"]
-     
-     "#<"    [:OP :LOGIC "<"]
-     "#>"    [:OP :LOGIC ">"]
-     "#<="   [:OP :LOGIC "<="]
-     "#>="   [:OP :LOGIC ">="]
-     "#="    [:OP :LOGIC "==="]
-     "=?"    [:OP :LOGIC "=="]
-     "#!="   [:OP :LOGIC "!=="]
-     "#!=?"  [:OP :LOGIC "=="]})
-
-  (defn import! [importer importee]
-    (doseq [[k v] (deref (first (:symbols importee)))]
-      (util/dictionary-set (:symbols importer) k v)))
-
-  (defn make-standard-environment [& [package no-core]]
-    (let [env (make-environment
-               package
-               (util/make-dictionary (list (atom standard-symbols*))))]
-      (when (not no-core) (import! env @constants/CORE))
-      env))
-
-  ;; keep a reference to standard symbols for the reader
-
-  (def base-env (make-standard-environment "__BASE__" true))
-  (def base-color :BASE)
-  (swap! color-db assoc base-color base-env)
-)

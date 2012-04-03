@@ -78,6 +78,9 @@
 (defn local [x y]
   (str "x_" x "_" y))
 
+(defn error [x y]
+  (str "e_" x "_" y))
+
 (defn arg [x y]
   (str "a_" x "_" y))
 
@@ -90,11 +93,11 @@
 (defn if-token? [t] (= :IF (first t)))
 
 (defn emit-if [test then else]
-  (write! "if (")
+  (write! "if (!(")
   (emit test)
   (write! " == null || ")
   (emit test)
-  (write! " === false)")
+  (write! " === false))")
   (SP)
   (emit-body then)
   (when (seq else)
@@ -144,14 +147,15 @@
     (NL) (TAB)
     (write! "}")))
 
-(defn emit-labeled-block [loop? label sentinel body]
+(defn emit-labeled-block [prefixer label sentinel body]
   (when sentinel
     (write! "try {")
     (indent!) (NL) (TAB))
 
   (emit label)
   (write! ":")
-  (when loop? (write! "for (;;) "))
+  (when prefixer (prefixer))
+  
   (emit-body body)
 
   (when sentinel
@@ -170,6 +174,17 @@
     (NL) (TAB)
     (write! "}")))
 
+(defn emit-do-properties [label sentinel prop obj body]
+  (emit-labeled-block
+   (fn [] (do (write! "for(")
+          (emit prop)
+          (write! " in ")
+          (emit obj)
+          (write! ") ")))
+   label
+   sentinel
+   body))
+
 (defn emit [[tag a b c d e :as token]]
   (case tag
     :VAL      (emit-literal a)
@@ -179,8 +194,9 @@
     :FIELD    (do (emit a) (in-brackets (emit b)))
     :CALL     (do (emit a) (comma-list b))
     :NEW      (do (write! "new ") (emit a) (comma-list b))
-    :BLOCK    (emit-labeled-block false a b c)
-    :LOOP     (emit-labeled-block true a b c)
+    :BLOCK    (emit-labeled-block nil a b c)
+    :LOOP     (emit-labeled-block
+               (fn [] (write! "for(;;) ")) a b c)
     :FN       (in-parens
                (write! "function ")
                (comma-list a)
@@ -211,6 +227,21 @@
         (SP)
         (emit-body c))
 
+    :UNWIND_PROTECT
+    (do (write! "try ")
+        (emit-body a)
+        (when-let [[bx by] b]
+          (write! " catch (")
+          (emit bx)
+          (write! ") ")
+          (emit-body by))
+        (when c
+          (write! " finally ")
+          (emit-body c)))
+
+    :DO_PROPERTIES
+    (emit-do-properties a b c d e)
+    
     :ARG
     (write! (arg a b))
 
@@ -220,11 +251,17 @@
     :LOCAL
     (write! (local a b))
 
+    :ERROR
+    (write! (error a b))
+    
     :GLOBAL
     (write! (global a b))
 
     :&REST
-    (emit-&rest a b)))
+    (emit-&rest a b)
+
+    :THIS
+    (write! "this")))
 
 (defn emit-tokens [tokens]
   (clear!)

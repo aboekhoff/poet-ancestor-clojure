@@ -8,6 +8,10 @@
 (declare expand-symbol expand-list expand-array
          expand-function expand-let expand-letrec)
 
+(defn import-package
+  [importer importee-id & {:keys [prefix]}]
+  (throw (RuntimeException. "import-package not configured"))) 
+
 (defn syntax-error [msg form]
   (throw (RuntimeException.
           (str msg
@@ -54,7 +58,7 @@
   (and (seq? form) (= val (env/resolve-symbol env (first form)))))
 
 (defn definition? [env form]
-  (resolves-to? env form 'core/define))
+  (resolves-to? env form 'core/define*))
 
 (defn include? [env form]
   (resolves-to? env form 'core/include))
@@ -154,16 +158,22 @@
         this (env/bind-symbol env this)
         args (expand-args env args)
         body (expand-body env body)]
-    (list 'core/method (cons this args))))
+    (list 'core/method (cons this args) body)))
 
 (defn expand-array [env array]
   (vec (map #(expand-form env %) array)))
 
 (defn front-dotted? [s]
-  (re-matches #"^\.[^\.]+$" (str s)))
+  (and (symbol? s)
+       (re-matches #"^\.[^\.]+$" (str s))))
 
 (defn expand-call [e xs]
-  (expand-forms e xs))
+  (if (front-dotted? (first xs))
+    (let [field (.substring (str (first xs)) 1)
+          obj   (expand-form e (second xs))]
+      (list* (list 'core/. obj field)
+             (expand-forms e (drop 2 xs))))
+    (expand-forms e xs)))
 
 (defn expand-let-syntax [env bindings body]
   (if (empty? bindings)
@@ -183,16 +193,52 @@
       (env/bind-macro env* name macro)
       (recur env* (rest bindings) body))))
 
-(defn expand-quote [form]
+(defn expand-quote [form]  
   (list 'core/quote form))
 
+(defn front-dotted? [x]
+  (and (symbol? x)
+       (.startsWith (name x) ".")))
+
 (defn expand-call [env head tail]
-  (cons (expand-form env head) (expand-forms env tail)))
+  (if (front-dotted? head)
+    (let [callee (expand-form env (first tail))
+          field  (.substring (name head) 1)
+          args   (expand-forms env (rest tail))]
+      (cons (list 'core/. callee field) args))
+    (cons (expand-form env head) (expand-forms env tail))))
+
+(comment
+  (unwind-protect
+   (:try ...)
+   (:catch e ...)
+   (:finally ...)))
+
+(defn expand-unwind-protect [env tail]
+  (let [clauses     (into {} (for [[key & body] tail] [key body]))
+        try-block   (when-let [body (:try clauses)]
+                      (expand-body env body))
+        catch-block (when-let [[err & body] (:catch clauses)]
+                      (let [env  (env/extend-env env)
+                            err  (env/bind-symbol env err)
+                            body (expand-body env body)]
+                        (list err body)))
+        finally-block (when-let [body (:finally clauses)]
+                        (expand-body env body))]
+    (list 'core/unwind-protect
+          (list :try     try-block)
+          (if catch-block
+            (cons :catch catch-block)
+            (list :catch nil))
+          (list :finally finally-block))))
+
+
+(defn expand-quasiquote [env xs])
 
 (defn expand-list [env form]
   (let [[head & tail] form]    
-    (case (keyword (env/resolve-symbol env head))
-      :core/define
+    (case (keyword (env/resolve-symbol env head))            
+      :core/define*
       (baddef form)
       
       :core/define-syntax
@@ -240,11 +286,20 @@
       (let [env*  (env/extend-env env)
             label (env/bind-label env (first tail))]
         (list 'core/block label (expand-body env (rest tail))))
+
+      :core/do-properties*
+      (let [[label [prop obj] & body] tail
+            obj   (expand-form env obj)
+            env   (env/extend-env env)
+            prop  (env/bind-symbol env prop)
+            label (env/bind-label  env label)
+            body  (expand-body env body)]
+        (list 'core/do-properties* label (list prop obj) body))
       
-      :core/loop
+      :core/loop*
       (let [env   (env/extend-env env)
             label (env/bind-label env (first tail))]
-        (list 'core/loop label (expand-body env (rest tail))))
+        (list 'core/loop* label (expand-body env (rest tail))))
 
       :core/return-from
       (list 'core/return-from
@@ -256,6 +311,12 @@
 
       :core/throw
       (list 'core/throw (expand-form env (first tail)))
+
+      :core/unwind-protect
+      (expand-unwind-protect env tail)
+
+      :core/quasiquote
+      (expand-quasiquote env (first tail))
       
       ;; else
       (expand-call env head tail))))
@@ -285,6 +346,15 @@
               x* (expand-form e (nth x 2))]
           (cons (list 'core/set! v x*)
                 (expand-toplevel* e xs)))        
+
+        (import? e x)
+        (do (apply import-package e (rest x))
+            (expand-toplevel* e (rest xs)))
+        
+        (include? e x)       
+        (let [more (for [filename (rest x)]
+                     (reader/read-file filename))]
+          (expand-toplevel* e (concat (apply concat more) xs)))
         
         :else
         (cons (expand-form e x)
