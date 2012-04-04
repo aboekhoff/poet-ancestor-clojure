@@ -1,5 +1,17 @@
 (define* *debug* #t)
 
+(define-syntax declare
+  ((declare)
+   #nil)
+  ((declare x xs ...)
+   (begin (define* x #nil) (declare xs ...))))
+
+(declare + - * / mod div
+         < <= = >= > nil?
+         bit-and bit-or bit-xor bit-not
+         bit-shift-left bit-shift-right bit-shift-right*
+         has-property? delete-property! instanceof typeof)
+
 (define-syntax assert
   ((assert expression)
    (when *debug*
@@ -187,7 +199,7 @@
 
 (define (- . xs)
   (case xs.length
-    (0 (throw (js.Error "core::- requires at least one argument")))
+    (0 (throw (js.Error "- requires at least one argument")))
     (1 (- xs.0))
     (:else
      (let ((r (* xs.0 xs.1)))
@@ -197,7 +209,7 @@
 
 (define (/ . xs)
   (case xs.length
-    (0 (throw (js.Error "core::/ requires at least one argument")))
+    (0 (throw (js.Error "/ requires at least one argument")))
     (1 (/ 1 xs.0))
     (:else
      (let ((r (* xs.0 xs.1)))
@@ -322,23 +334,37 @@
 
 (define-type List (head tail size))
 (define-type Keyword (name))
-(define-type Symbol (name))
-(define-type QualifiedSymbol (package name))
-(define-type TaggedSymbol (child tag))
+(define-type Symbol  (name qualifier child tag))
+
+(define (make-keyword name)
+  (let ((key (+ ":" name)))
+    (or (. *keyword-interns* key)
+        (let ((kwd (new Keyword name)))
+          (set! (. *keyword-interns* key) kwd)
+          kwd))))
+
+(define (make-symbol name)
+  (new Symbol name #nil #nil #nil))
+
+(define (make-qualified-symbol qualifier name)
+  (new Symbol name qualifier #nil #nil))
+
+(define (make-tagged-symbol symbol tag)
+  (new Symbol symbol.name #nil symbol tag))
 
 (define (keyword? x)
   (instanceof x Keyword))
 
 (define (symbol? x)
-  (or (instanceof x Symbol)
-      (instanceof x QualifiedSymbol)
-      (instanceof x TaggedSymbol)))
+  (instanceof x Symbol))
 
 (define (qualified-symbol? x)
-  (instanceof x QualifiedSymbol))
+  (and (instanceof x Symbol)
+       (not (nil? x.qualifier))))
 
 (define (tagged-symbol? x)
-  (instanceof x TaggedSymbol))
+  (and (instanceof x Symbol)
+       (not (nil? x.tag))))
 
 (define (list? x)
   (instanceof x List))
@@ -358,13 +384,6 @@
 
 (define (fn? x)
   (= (typeof x) "function"))
-
-(define (make-keyword name)
-  (let ((key (+ ":" name)))
-    (or (. *keyword-interns* key)
-        (let ((kwd (new Keyword name)))
-          (set! (. *keyword-interns* key) kwd)
-          kwd))))
 
 (define (get-typename x)
   (let* ((constructor x.constructor)
@@ -427,15 +446,15 @@
 
   (Symbol
    (fn (x p e)
-       (p x.name)))
-
-  (QualifiedSymbol
-   (fn (x p e)
-       (p (+ x.package "::" x.name))))
-
-  (TaggedSymbol
-   (fn (x p e)
-       (p (symbol->key x))))
+       (cond
+        ((qualified-symbol? x)
+         (p x.qualifier)
+         (p "::")
+         (p x.name))
+        ((tagged-symbol? x)
+         (represent x.child))
+        (#t
+         (p x.name)))))
 
   (Keyword
    (fn (x p e)
@@ -642,3 +661,4 @@
 
 (define (cons x xs)
   (assert (list? xs))
+  (new List x xs (+ xs.size 1)))

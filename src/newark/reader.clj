@@ -245,6 +245,9 @@
 (defn read-string [string]
   (read-form (string->input-port string)))
 
+(defn read-string* [string & [name]]
+  (read-all-forms (string->input-port string name)))
+
 (defn read-quote [port]
   (read-char port)
   (let [form (read-form port)]

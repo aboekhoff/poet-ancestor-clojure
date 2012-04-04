@@ -349,7 +349,7 @@
 
         (import? e x)
         (do (apply import-package e (rest x))
-            (expand-toplevel* e (rest xs)))
+            (expand-toplevel* e xs))
         
         (include? e x)       
         (let [more (for [filename (rest x)]

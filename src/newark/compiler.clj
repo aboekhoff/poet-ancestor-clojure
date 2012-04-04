@@ -19,13 +19,13 @@
 
 (defn norm [x]
   (cond
-   (seq? x)    (norm-list x)
-   (vector? x) [:ARRAY (norm* x)]
-   (symbol? x) (if (namespace x)
-                 [:GLOBAL (namespace x) (name x)]
-                 [:VAR x])
-   (keyword? x) [:CALL [:GLOBAL "core" "make-keyword"] [[:VAL (name x)]]]
-   :else       [:VAL x]))
+   (seq? x)     (norm-list x)
+   (vector? x)  [:ARRAY (norm* x)]
+   (symbol? x)  (if (namespace x)
+                  [:GLOBAL (namespace x) (name x)]
+                  [:VAR x])
+   (keyword? x) [:KEYWORD (.substring (str x) 1)]
+   :else        [:VAL x]))
 
 (defn norm* [xs]
   (vec (map norm xs)))
@@ -68,14 +68,14 @@
    'prelude/bit-shift-right* '>>})
 
 (def js  
-  {'core/has-property?    'in
-   'core/instanceof       'instanceof
-   'core/typeof           'typeof
-   'core/delete-property! 'delete})
+  {'prelude/has-property?    'in
+   'prelude/instanceof       'instanceof
+   'prelude/typeof           'typeof
+   'prelude/delete-property! 'delete})
 
 (defn get-op [x]
   (when (and (symbol? x)
-             (= (namespace x) "core"))
+             (= (namespace x) "prelude"))
     (or (get math x)
         (get logic x)
         (get bits x)
@@ -104,13 +104,15 @@
   (cond
    (symbol? x)
    (if (namespace x)
-     [:NEW [:GLOBAL "core" "QualifiedSymbol"]
+     [:CALL
+      [:GLOBAL "prelude" "make-qualified-symbol"]
       [[:VAL (namespace x)] [:VAL (name x)]]]
-     [:NEW [:GLOBAL "core" "Symbol"]
+     [:CALL
+      [:GLOBAL "prelude" "make-symbol"]
       [[:VAL (name x)]]])
 
    (seq? x)
-   [:CALL [:GLOBAL "core" "list"]
+   [:CALL [:GLOBAL "prelude" "list"]
     (vec (map norm-quote x))]
 
    (vector? x)
@@ -281,7 +283,7 @@
   (let [scope *root-scope*
         
         sets   (for [[k v] @(:keywords scope)]
-                [:SET! v [:CALL [:GLOBAL "core" "make-keyword"]
+                [:SET! v [:CALL [:GLOBAL "prelude" "make-keyword"]
                           [[:VAL (name k)]]]])
        
         decl   (gen-declaration scope)
@@ -323,10 +325,12 @@
        @(:block *scope*))))
 
 (defn serialize-begin [exprs tracer]
-  (if (empty? (rest exprs))
-    (serialize (first exprs) tracer)
-    (do (serialize (first exprs) nil)
-        (recur (rest exprs) tracer))))
+  (cond
+   (empty? exprs)        (serialize [:VAL nil] tracer)
+   (empty? (rest exprs)) (serialize (first exprs) tracer)
+   :else
+   (do (serialize (first exprs) nil)
+       (recur (rest exprs) tracer))))
 
 (defn serialize-let-bindings [locals exprs]
   (when (seq locals)
