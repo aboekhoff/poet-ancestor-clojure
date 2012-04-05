@@ -169,9 +169,10 @@
            "raw"
            "quote"
            "js"
-           "newark"
            "new"
-           
+
+           "newark"
+           "require"
            "has-property?"
            "instanceof"
            "typeof"

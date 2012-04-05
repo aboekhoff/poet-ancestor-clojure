@@ -1,8 +1,8 @@
 (ns newark.constants)
 
 (def CORE (atom {}))
-(def NEWARK "G")
-(def GLOBAL "JS")
+(def NEWARK "newark")
+(def GLOBAL "js")
 (def PRELUDE
   (str
    "var " GLOBAL ", " NEWARK ";\n"

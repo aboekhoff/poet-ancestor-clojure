@@ -336,6 +336,8 @@
 (define-type Keyword (name))
 (define-type Symbol  (name qualifier child tag))
 
+(set! Keyword.prototype.toString (method (this) this.name))
+
 (define (make-keyword name)
   (let ((key (+ ":" name)))
     (or (. *keyword-interns* key)
@@ -452,7 +454,7 @@
          (p "::")
          (p x.name))
         ((tagged-symbol? x)
-         (represent x.child))
+         (represent x.child p e))
         (#t
          (p x.name)))))
 

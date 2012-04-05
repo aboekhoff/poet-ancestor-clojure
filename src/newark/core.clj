@@ -13,6 +13,7 @@
 
 (defn -main [& args]
   (let [[{:keys [help watch path]} targets banner] (parse-args args)]
+    (prn targets)
     (if help
       (println banner)
       (do
