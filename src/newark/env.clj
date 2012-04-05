@@ -172,11 +172,7 @@
            "new"
 
            "newark"
-           "require"
-           "has-property?"
-           "instanceof"
-           "typeof"
-           "delete-property!"]]
+           "require"]]
   (bind-global core (symbol x)))
 
 (defn import! [e1 e2 & [pred]]
