@@ -144,7 +144,10 @@
 (defn norm-call [callee args]
   (if-let [op (get-op callee)]
     (norm-op op (norm* args))
-    [:CALL (norm callee) (norm* args)]))
+    (let [callee (norm callee)]
+      (if (= callee [:GLOBAL "prelude" "object"])
+        [:OBJECT (norm* args)]
+        [:CALL   callee (norm* args)]))))
 
 (defn norm-unwind-protect [clauses]
   (let [clauses  (into {} (for [[k & x] clauses] [k x]))
@@ -475,6 +478,14 @@
           (serialize-block finally-block nil))]
     (push [:UNWIND_PROTECT try-block catch-block finally-block])))
 
+(defn serialize-object [kvs t]
+  (let [obj (make-local)]
+    (push [:SET! obj [:OBJECT_LITERAL]])
+    (doseq [[k v] (partition 2 kvs)]
+      (let [k* (simplify k)]
+        (serialize v (fn [x] [:SET! [:FIELD obj k*] x]))))
+    (maybe-trace obj t)))
+
 (defn serialize [[tag a b c d :as x] t]
   (case tag
     :GLOBAL  (maybe-trace x t)
@@ -511,7 +522,10 @@
     (serialize-unwind-protect a b c t)
 
     :DO_PROPERTIES
-    (serialize-do-properties a b c d t)))
+    (serialize-do-properties a b c d t)
+
+    :OBJECT
+    (serialize-object a t)))
 
 (defn compile-toplevel [x]
   (let [x (norm x)]

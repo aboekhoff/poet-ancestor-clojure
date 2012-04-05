@@ -255,7 +255,15 @@
         (expand-body env* tail))
       
       :core/set!
-      (cons 'core/set! (expand-forms env tail))
+      (case (count tail)
+        2 (list* 'core/set! (expand-forms env tail))
+        3 (list 'core/set!
+                (list 'core/.
+                      (expand-form env (first tail))
+                      (expand-form env (second tail)))
+                (expand-form env (nth tail 2)))
+        (throw (RuntimeException.
+                "core::set! requires exactly two or exactly three arguments")))      
       
       :core/.
       (cons 'core/. (expand-forms env tail))

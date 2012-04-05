@@ -261,7 +261,10 @@
     (emit-&rest a b)
 
     :THIS
-    (write! "this")))
+    (write! "this")
+
+    :OBJECT_LITERAL
+    (write! "{}")))
 
 (defn emit-tokens [tokens]
   (clear!)

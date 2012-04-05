@@ -177,6 +177,19 @@
           (begin body ...))
         (inc! var*))))))
 
+(define (object . kvs)
+  (let ((obj (js.Object)))
+    (let ((end kvs.length)
+          (i   0))
+      (loop
+       (when (= i end) (return))
+       (let ((k (. kvs i)))
+         (inc! i)
+         (let ((v (. kvs i)))
+           (inc! i)
+           (set! (. obj k) v)))))
+    obj))
+
 (define (+ . xs)
   (case xs.length
     (0 0)
