@@ -165,6 +165,13 @@
         body ...
         (set! list* list*.tail))))))
 
+(define-syntax do-properties
+  ((do-properties ((key val) obj) body ...)
+   (do-properties* #nil (key obj)
+     (when (.hasOwnProperty obj key)
+           (let ((val (. obj key)))
+             body ...)))))
+
 (define-syntax do-times
   ((do-times (var num) body ...)
    (begin
@@ -278,12 +285,6 @@
   ((extend-generic gfn (type impl) more ...)
    (begin (extend-generic gfn (type impl))
           (extend-generic gfn more ...))))
-
-(define-generic traverse (f xs) xs)
-
-(extend-generic traverse
-  (js.Array  (fn (f xs) (do-array (x xs) (f x))))
-  (js.String (fn (f xs) (do-array (x xs) (f x)))))
 
 (define (get-name x)
   (when x (or (. x "name") (. x ":name"))))
@@ -406,19 +407,27 @@
     name))
 
 (define (represent-properties x p e)
-  (do-properties* #nil (k x)
+  (define many? #f)
+  (do-properties* #nil (k x)   
     (when (.hasOwnProperty x k)
-          (p " [")
-          (p (js.JSON.stringify k))
-          (p " ")
-          (represent (. x k) p e ?)
-          (p "]"))))
+          (if many? (p ", ") (set! many? #t))
+          (p (.stringify js.JSON k))
+          (p ": ")
+          (represent (. x k) p e))))
 
 (define (represent-object x p e)
-  (p "#<")
-  (p (get-typename x))
-  (represent-properties x p e)
-  (p ">"))
+  (let* ((c x.constructor))
+    (if (or (= c js.Object) (not c))
+        (begin 
+          (p "#{")
+          (represent-properties x p e)
+          (p "}"))
+        (begin
+          (p "#<")
+          (p (get-typename x))
+          (p " ")
+          (represent-properties x p e)
+          (p ">")))))
 
 (define (represent-array xs p e)
   (let ((many? #f))
@@ -514,6 +523,12 @@
   (js.String (fn (_ x) (x.join "")))
   (List      (fn (_ x) (array->list x))))
 
+(define-generic traverse (f xs) xs)
+(extend-generic traverse
+  (js.Array  (fn (f xs) (do-array (x xs) (f x))))
+  (js.String (fn (f xs) (do-array (x xs) (f x))))
+  (List      (fn (f xs) (do-list  (x xs) (f x)))))
+
 (define-generic len (x))
 (extend-generic len
   (js.Array  (fn (x) x.length))
@@ -560,6 +575,14 @@
   (js.String (fn (x) (. x 0)))
   (List      (fn (x) x.head))
   (:default  (fn (x) (. (to-array x) 0))))
+
+(define (any? pred coll)
+  (traverse (fn (x) (when (pred x) (return-from any? #t))) coll)
+  #f)
+
+(define (every? pred coll)
+  (traverse (fn (x) (unless (pred x) (return-from every? #f))) coll)
+  #t)
 
 (define-generic nth (xs i))
 (extend-generic nth
@@ -609,13 +632,38 @@
 (define (ninth x)
   (nth x 9))
 
-(define (map func coll)
+(define (map f xs)
+  (let ((r []) (i 0))
+    (traverse
+     (fn (x) (set! (. r i) (f x)) (inc! i))
+     xs)
+    (from-array xs r)))
+
+(define (filter f xs)  
   (define tmp (to-array coll))
   (define res [])
-  (set! res.length tmp.length)
-  (do-array (x i tmp)
-    (set! (. res i) (func x)))
+  (define idx 0)
+  (do-array (x tmp)
+    (when (pred x)
+      (set! (. res idx) x)
+      (inc! idx)))
   (from-array coll res))
+
+(define (foldl f x xs)
+  (traverse (fn (y) (set! x (f x y))) xs)
+  x)
+
+(define (foldr f xs x)
+  (traverse (fn (y) (set! x (f y x))) (reverse xs))
+  x)
+
+(define (append . colls)
+  (let* ((result [])
+         (i 0)
+         (push (fn (x) (set! (. result i) x) (inc! i))))
+    (do-array (coll colls)
+      (traverse push coll))
+    (from-array (first colls) result)))
 
 (define (apply f . xs)
   (let ((n xs.length))    
@@ -652,16 +700,6 @@
       (set! (. result i) (.apply func #nil arglist))))
 
   (from-array (first colls) result))
-
-(define (filter pred coll)
-  (define tmp (to-array coll))
-  (define res [])
-  (define idx 0)
-  (do-array (x tmp)
-    (when (pred x)
-      (set! (. res idx) x)
-      (inc! idx)))
-  (from-array coll res))
 
 (define (take n coll)
   (let ((tmp (to-array coll)))
