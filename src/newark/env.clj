@@ -68,6 +68,22 @@
         (util/merge-meta s {:tags (rest ts)})
         (util/merge-meta s {:tags (cons t ts)})))))
 
+(defn ensure-tag [s t]
+  (if (namespace s)
+    s
+    (let [ts (symbol->tags s)]
+      (if (= t (first ts))
+        s
+        (util/merge-meta s {:tags (cons t ts)})))))
+
+(defn remove-tag [s t]
+  (if (namespace s)
+    s
+    (let [ts (symbol->tags s)]
+      (if (= t (first ts))
+        (util/merge-meta s {:tags (rest ts)})
+        s))))
+
 (defn untag-symbol [s]
   (util/merge-meta s {:tags (rest (symbol->tags s))}))
 

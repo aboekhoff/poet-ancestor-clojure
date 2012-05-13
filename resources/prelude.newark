@@ -29,8 +29,8 @@
 
 (define-syntax case* 
   ((case* _)
-   (throw js.Error
-     ("no case matched and no :else clause provided")))
+   (throw (js.Error
+           "no case matched and no :else clause provided")))
 
   ((case* _ (:else body ...))
    (begin body ...))
@@ -101,18 +101,7 @@
        (method (this args ...) (block name body ...)))
      (set! (. name ":name") (:identifier->string name)))))
 
-(define-syntax define-type
-  ((define-type name (field ...) init ...)
-   (begin
-     (define* name
-       (method (this field ...)
-               (if (instanceof this name)
-                   (begin
-                     (set! (. this (:identifier->string field)) field) ...
-                     init ...
-                     this)
-                   (new name field ...))))
-     (set! (. name ":name") (:identifier->string name)))))
+
 
 (define-syntax loop
   ((loop body ...)
@@ -286,6 +275,15 @@
    (begin (extend-generic gfn (type impl))
           (extend-generic gfn more ...))))
 
+(define-syntax define-type
+  ((define-type type (field ...))
+   (define-method (type this field ...)
+     (if (instanceof this type)
+         (begin
+           (set! (. this (:identifier->string field)) field) ...
+           this)
+         (new type field ...)))))
+
 (define (get-name x)
   (when x (or (. x "name") (. x ":name"))))
 
@@ -324,26 +322,28 @@
       (:finally
        (set! x old-x))))))
 
+(define-syntax with-output-to-string
+  ((with-output-to-string body ...)
+   (call-with-output-string (fn () body ...))))
+
 (define (call-with-output-port port thunk)
   (fluid-let ((*out* port)) (thunk)))
 
-(define (pr-str . xs)
+(define (call-with-output-string thunk)
   (let* ((buf [])
-         (port (fn (x) (buf.push x))))
-    (call-with-output-port
-     port
-     (fn () (pr.apply #nil xs)))
-    (buf.join "")))
+         (port (fn (x) (.push buf x))))
+    (call-with-output-port port thunk)
+    (.join buf "")))
+
+(define (pr-str . xs)
+  (call-with-output-string
+     (fn () (pr.apply #nil xs))))
 
 (define (print-str . xs)
-  (let* ((buf [])
-         (port (fn (x) (buf.push x))))
-    (call-with-output-port
-     port
-     (fn () (print.apply #nil xs)))
-    (buf.join "")))
+  (call-with-output-string
+   (fn () (print.apply #nil xs))))
 
-(define *keyword-interns* (js.Object))
+(define *keyword-interns* (object))
 
 (define-type List (head tail size))
 (define-type Keyword (name))
@@ -475,6 +475,7 @@
          (p "::")
          (p x.name))
         ((tagged-symbol? x)
+         (p (+ "#:" x.tag.id ":"))
          (represent x.child p e))
         (#t
          (p x.name)))))

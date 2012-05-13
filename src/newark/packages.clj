@@ -30,7 +30,7 @@
 
 (defn add-path! [path]
   (let [paths (.split path File/pathSeparator)]
-    (reset! loadpath (apply conj @loadpath paths))))
+    (reset! loadpath (apply conj (vec paths) @loadpath))))
 
 (defn id->string [id]
   (str/replace 

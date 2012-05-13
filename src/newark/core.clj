@@ -4,7 +4,6 @@
         [newark.packages :only [add-path!]]
         [clojure.tools.cli :only [cli]]))
 
-
 (defn parse-args [args]
   (cli args
     ["-h" "--help"  "show this message" :flag true :default false]
